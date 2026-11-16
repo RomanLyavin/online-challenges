@@ -57,6 +57,24 @@
     return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(parsed);
   }
 
+  function formatBytes(value) {
+    const bytes = num(value);
+    if (bytes <= 0) return "";
+    const units = ["Б", "КБ", "МБ", "ГБ"];
+    let size = bytes;
+    let index = 0;
+    while (size >= 1024 && index < units.length - 1) {
+      size /= 1024;
+      index += 1;
+    }
+    const fractionDigits = index === 0 ? 0 : 1;
+    const formatted = new Intl.NumberFormat("ru-RU", {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits
+    }).format(size);
+    return formatted + " " + units[index];
+  }
+
   function formatDate(value) {
     if (!value) return "—";
     const date = new Date(String(value) + "T00:00:00");
@@ -350,6 +368,7 @@
     const openLink = url
       ? '<a class="conf-open" href="' + escapeHtml(url) + '" target="_blank" rel="noopener">Открыть ' + escapeHtml(proofTypeLabel(file.type)) + " →</a>"
       : '<span class="conf-sub">Файл недоступен</span>';
+    const size = formatBytes(file.size);
     return '<article class="conf-card">' +
       '<a class="conf-thumb" ' + (url ? 'href="' + escapeHtml(url) + '" target="_blank" rel="noopener"' : "") + ">" +
       (isVideo || !url
@@ -359,7 +378,7 @@
       '<div class="conf-info">' +
       '<div class="conf-title">' + escapeHtml(title) + "</div>" +
       '<div class="conf-sub">' + escapeHtml(challenge) + "</div>" +
-      '<div class="conf-sub">' + escapeHtml(formatDate(file.date)) + " · " + escapeHtml(String(file.size ? formatNumber(file.size) + " Б" : "")) + "</div>" +
+      '<div class="conf-sub">' + escapeHtml(formatDate(file.date)) + (size ? " · " + escapeHtml(size) : "") + "</div>" +
       '<div class="conf-actions"><span class="tag">' + (isVideo ? "🎬 Видео" : "📷 Фото") + "</span>" + openLink + "</div>" +
       "</div></article>";
   }
