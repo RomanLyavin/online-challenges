@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "app": "Онлайн челленджи",
+  "pagesUrl": "https://romanlyavin.github.io/online-challenges/",
+  "repoUrl": "https://github.com/RomanLyavin/online-challenges",
+  "scoring": "1 балл за каждую полностью выполненную цель. Частичное выполнение баллов не даёт.",
+  "totals": {
+    "users": 0,
+    "challenges": 0,
+    "confirmations": 0
+  },
+  "users": [],
+  "challenges": []
+}

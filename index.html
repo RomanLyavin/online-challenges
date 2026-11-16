@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f766e">
+  <title>Онлайн челленджи — результаты и подтверждения</title>
+  <meta name="description" content="Публичные итоги онлайн-челленджей: участники, баллы, места, медали и фото/видео подтверждения.">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">К содержимому</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="#top" aria-label="Онлайн челленджи — на главную">
+        <span class="brand-mark" aria-hidden="true">🏆</span>
+        <span class="brand-text">
+          <strong>Онлайн челленджи</strong>
+          <small>результаты · медали · подтверждения</small>
+        </span>
+      </a>
+      <nav class="main-nav" aria-label="Разделы">
+        <a href="#leaderboard">Рейтинг</a>
+        <a href="#challenges">Челленджи</a>
+        <a href="#confirmations">Подтверждения</a>
+        <a href="#about">Правила</a>
+      </nav>
+      <div class="header-actions">
+        <button class="icon-button" id="theme-toggle" type="button" aria-label="Переключить тему" title="Светлая / тёмная тема">◐</button>
+        <a class="button button-ghost" id="repo-link" href="https://github.com/RomanLyavin/online-challenges" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <span class="eyebrow">Публичная статистика</span>
+          <h1>Дисциплина, которую видно</h1>
+          <p>
+            Участники выполняют ежедневные цели, прикладывают фото и видео и получают баллы.
+            Здесь собраны итоги челленджей, места, медали и все подтверждения.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" id="apk-link" href="https://github.com/RomanLyavin/online-challenges/releases/latest" target="_blank" rel="noopener">
+              Скачать APK
+            </a>
+            <a class="button button-soft" href="#challenges">Смотреть челленджи</a>
+          </div>
+          <p class="hero-note" id="generated-note">Данные загружаются…</p>
+        </div>
+        <div class="hero-card" aria-label="Сводка">
+          <div class="hero-card-head">
+            <span class="pulse-dot" aria-hidden="true"></span>
+            <span>Сводка проекта</span>
+          </div>
+          <div class="summary-grid">
+            <div class="summary-item">
+              <strong id="stat-users">—</strong>
+              <span>участников</span>
+            </div>
+            <div class="summary-item">
+              <strong id="stat-challenges">—</strong>
+              <span>челленджей</span>
+            </div>
+            <div class="summary-item">
+              <strong id="stat-confirmations">—</strong>
+              <span>подтверждений</span>
+            </div>
+            <div class="summary-item">
+              <strong>1</strong>
+              <span>балл за цель</span>
+            </div>
+          </div>
+          <div class="hero-card-foot">
+            <span>🥇</span><span>🥈</span><span>🥉</span>
+            <p>Медали получают три лидера каждого завершённого челленджа.</p>
+          </div>
+        </div>
+      </div>
+      <div class="hero-glow" aria-hidden="true"></div>
+    </section>
+
+    <section class="section" id="leaderboard">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Общий зачёт</span>
+            <h2>Рейтинг участников</h2>
+          </div>
+          <p class="section-lead">Сначала медали, затем сумма баллов за все челленджи.</p>
+        </div>
+        <div class="panel" id="leaderboard-panel">
+          <div class="loading">Загружаем рейтинг…</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="challenges">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Соревнования</span>
+            <h2>Челленджи</h2>
+          </div>
+          <p class="section-lead">Условия, участники, баллы и последние подтверждённые результаты.</p>
+        </div>
+        <div class="toolbar">
+          <div class="chips" id="challenge-filters" role="group" aria-label="Фильтр по статусу">
+            <button class="chip is-active" type="button" data-filter="ALL">Все</button>
+            <button class="chip" type="button" data-filter="ACTIVE">Идут</button>
+            <button class="chip" type="button" data-filter="UPCOMING">Скоро</button>
+            <button class="chip" type="button" data-filter="FINISHED">Завершены</button>
+          </div>
+          <label class="search">
+            <span class="sr-only">Поиск по челленджам</span>
+            <input id="challenge-search" type="search" placeholder="Найти челлендж…" autocomplete="off">
+          </label>
+        </div>
+        <div id="challenges-panel">
+          <div class="loading">Загружаем челленджи…</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="confirmations">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Доказательства</span>
+            <h2>Подтверждения</h2>
+          </div>
+          <p class="section-lead">Все фото и видео, загруженные участниками в папки <code>confirmations/&lt;код&gt;/</code>.</p>
+        </div>
+        <div class="toolbar">
+          <label class="search search-wide">
+            <span class="sr-only">Поиск по подтверждениям</span>
+            <input id="confirmation-search" type="search" placeholder="Поиск по имени, коду, челленджу…" autocomplete="off">
+          </label>
+          <span class="counter" id="confirmation-counter"></span>
+        </div>
+        <div id="confirmations-panel">
+          <div class="loading">Загружаем подтверждения…</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="about">
+      <div class="container about-grid">
+        <div>
+          <span class="eyebrow">Как это работает</span>
+          <h2>Правила и баллы</h2>
+          <ol class="rules">
+            <li><strong>Цель дня.</strong> Каждый челлендж состоит из одной или нескольких измеримых целей.</li>
+            <li><strong>Подтверждение.</strong> Для шагов, пробежки и сна нужен скриншот, для планки, отжиманий и приседаний — видео.</li>
+            <li><strong>Один балл.</strong> Балл начисляется только за полностью выполненную цель с подходящим подтверждением. Частичный результат баллов не даёт.</li>
+            <li><strong>Без бонусов.</strong> Превышение цели не добавляет баллов.</li>
+            <li><strong>Режимы.</strong> «Каждый день», «каждые N дней» (результаты складываются внутри окна) и «всего за период» (общая цель).</li>
+            <li><strong>Финал.</strong> После завершения челленджа первые три места получают медали в профиль.</li>
+          </ol>
+        </div>
+        <div class="about-card">
+          <div class="about-icon" aria-hidden="true">📱</div>
+          <h3>Приложение «Онлайн челленджи»</h3>
+          <p>Это отдельный проект, не связанный с TrackFix. Android-приложение хранит данные локально и синхронизирует их с публичным GitHub-репозиторием.</p>
+          <div class="about-links">
+            <a class="button button-primary" id="apk-link-2" href="https://github.com/RomanLyavin/online-challenges/releases/latest" target="_blank" rel="noopener">Скачать APK</a>
+            <a class="button button-ghost" id="repo-link-2" href="https://github.com/RomanLyavin/online-challenges" target="_blank" rel="noopener">Исходники</a>
+          </div>
+          <p class="fine-print">Демо-данные в приложении помечены и никогда не публикуются. На сайте отображаются только реальные синхронизированные записи.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <p>Онлайн челленджи · <span id="footer-year"></span></p>
+      <p><a href="https://github.com/RomanLyavin/online-challenges" id="footer-repo" target="_blank" rel="noopener">RomanLyavin/online-challenges</a></p>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="assets/app.js"></script>
+</body>
+</html>

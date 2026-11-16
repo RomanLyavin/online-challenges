@@ -1,0 +1,117 @@
+package com.onlinechallenges.app.data
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.util.Base64
+import java.util.concurrent.TimeUnit
+
+data class RemoteFile(val text: String, val sha: String)
+
+class GitHubException(message: String) : Exception(message)
+
+class GitHubClient(private val config: GitHubConfig) {
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .writeTimeout(90, TimeUnit.SECONDS)
+        .build()
+
+    private val jsonType = "application/json; charset=utf-8".toMediaType()
+
+    suspend fun testConnection(): String = withContext(Dispatchers.IO) {
+        val request = request("repos/${config.owner}/${config.repo}")
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw GitHubException(errorMessage(response.code, body))
+            val json = JSONObject(body)
+            val permissions = json.optJSONObject("permissions")
+            if (permissions != null && permissions.has("push") && !permissions.optBoolean("push")) {
+                throw GitHubException("Токен не имеет права записи в этот репозиторий")
+            }
+            val defaultBranch = json.optString("default_branch", "main")
+            "Подключено: ${json.optString("full_name", "${config.owner}/${config.repo}")}, ветка $defaultBranch"
+        }
+    }
+
+    suspend fun getFile(path: String): RemoteFile? = withContext(Dispatchers.IO) {
+        val request = request("repos/${config.owner}/${config.repo}/contents/${encodePath(path)}?ref=${config.branch}")
+        client.newCall(request).execute().use { response ->
+            if (response.code == 404) return@withContext null
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw GitHubException(errorMessage(response.code, body))
+            val json = JSONObject(body)
+            if (json.optString("type") != "file") return@withContext null
+            val content = json.optString("content", "")
+            val decoded = runCatching {
+                String(Base64.getMimeDecoder().decode(content), Charsets.UTF_8)
+            }.getOrElse { throw GitHubException("Не удалось прочитать $path из GitHub") }
+            RemoteFile(decoded, json.optString("sha", ""))
+        }
+    }
+
+    suspend fun putFile(
+        path: String,
+        bytes: ByteArray,
+        message: String,
+        sha: String? = null
+    ): String = withContext(Dispatchers.IO) {
+        val payload = JSONObject()
+            .put("message", message)
+            .put("content", Base64.getEncoder().encodeToString(bytes))
+            .put("branch", config.branch)
+        if (!sha.isNullOrBlank()) payload.put("sha", sha)
+        val body = payload.toString().toRequestBody(jsonType)
+        val request = Request.Builder()
+            .url("https://api.github.com/repos/${config.owner}/${config.repo}/contents/${encodePath(path)}")
+            .header("Authorization", "Bearer ${config.token}")
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "OnlineChallenges-Android")
+            .put(body)
+            .build()
+        client.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw GitHubException(errorMessage(response.code, responseBody))
+            runCatching { JSONObject(responseBody).getJSONObject("content").optString("sha", "") }
+                .getOrDefault("")
+        }
+    }
+
+    suspend fun putText(path: String, text: String, message: String, sha: String? = null): String =
+        putFile(path, text.toByteArray(Charsets.UTF_8), message, sha)
+
+    fun rawUrl(path: String): String =
+        "https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch}/${path.trimStart('/')}"
+
+    fun pageUrl(path: String): String = config.pagesUrl + path.trimStart('/')
+
+    private fun request(path: String): Request = Request.Builder()
+        .url("https://api.github.com/$path")
+        .header("Authorization", "Bearer ${config.token}")
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "OnlineChallenges-Android")
+        .get()
+        .build()
+
+    private fun encodePath(path: String): String =
+        path.split("/").joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
+
+    private fun errorMessage(code: Int, body: String): String {
+        val apiMessage = runCatching { JSONObject(body).optString("message") }.getOrDefault("")
+        val detail = apiMessage.ifBlank { body.take(300) }
+        return when {
+            code == 401 -> "GitHub: неверный токен (401)"
+            code == 403 && detail.contains("rate limit", ignoreCase = true) ->
+                "GitHub: превышен лимит запросов, попробуйте позже"
+            code == 404 -> "GitHub: репозиторий или файл не найден (404). Проверьте owner/repo/ветку и доступ токена."
+            code == 409 || code == 422 -> "GitHub: конфликт версий файла. Повторите синхронизацию. $detail"
+            else -> "GitHub $code: $detail"
+        }
+    }
+}
