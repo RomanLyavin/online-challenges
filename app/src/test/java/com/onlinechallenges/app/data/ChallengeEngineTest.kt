@@ -300,6 +300,184 @@ class ChallengeEngineTest {
         assertTrue(ChallengeEngine.proofMatches(AttachmentType.VIDEO, ProofType.ANY))
     }
 
+    @Test
+    fun `peer confirmation completes a goal without media`() {
+        val challenge = challenge(
+            id = "peer-basic",
+            mode = ChallengeMode.DAILY,
+            start = start,
+            end = start,
+            goals = listOf(goal("running", target = 5.0, proof = ProofType.PHOTO)),
+            participants = listOf("A", "B")
+        )
+        val checkIns = listOf(
+            checkIn(challenge.id, "A", start, result("running", 5.0, withProof = false))
+        )
+        val confirmations = listOf(confirmation(challenge.id, "A", start, "running", "B", 5.0))
+
+        val score = ChallengeEngine.scoreParticipant(
+            challenge,
+            "A",
+            checkIns,
+            profiles("A", "B"),
+            start,
+            confirmations = confirmations
+        )
+
+        assertEquals(1, score.points)
+        val goalScore = score.periods.single().goalScores.single()
+        assertTrue(goalScore.completed)
+        assertFalse(goalScore.hasProof)
+        assertTrue(goalScore.hasPeerConfirmation)
+        assertEquals(listOf("B"), goalScore.peerConfirmations.map { it.confirmerCode })
+    }
+
+    @Test
+    fun `self confirmation and non participant confirmation are ignored`() {
+        val challenge = challenge(
+            id = "peer-invalid",
+            mode = ChallengeMode.DAILY,
+            start = start,
+            end = start,
+            goals = listOf(goal("running", target = 5.0)),
+            participants = listOf("A", "B")
+        )
+        val checkIns = listOf(
+            checkIn(challenge.id, "A", start, result("running", 5.0, withProof = false))
+        )
+        val confirmations = listOf(
+            confirmation(challenge.id, "A", start, "running", "A", 5.0),
+            confirmation(challenge.id, "A", start, "running", "C", 5.0)
+        )
+
+        val score = ChallengeEngine.scoreParticipant(
+            challenge,
+            "A",
+            checkIns,
+            profiles("A", "B", "C"),
+            start,
+            confirmations = confirmations
+        )
+
+        assertEquals(0, score.points)
+        assertFalse(score.periods.single().goalScores.single().hasPeerConfirmation)
+    }
+
+    @Test
+    fun `revoked or stale confirmation gives no point`() {
+        val challenge = challenge(
+            id = "peer-revoked",
+            mode = ChallengeMode.DAILY,
+            start = start,
+            end = start,
+            goals = listOf(goal("running", target = 5.0)),
+            participants = listOf("A", "B")
+        )
+        val checkIns = listOf(
+            checkIn(challenge.id, "A", start, result("running", 5.0, withProof = false))
+        )
+        val revoked = confirmation(challenge.id, "A", start, "running", "B", 5.0, revoked = true)
+        val stale = confirmation(challenge.id, "A", start, "running", "B", 4.0)
+
+        val revokedScore = ChallengeEngine.scoreParticipant(
+            challenge, "A", checkIns, profiles("A", "B"), start, confirmations = listOf(revoked)
+        )
+        val staleScore = ChallengeEngine.scoreParticipant(
+            challenge, "A", checkIns, profiles("A", "B"), start, confirmations = listOf(stale)
+        )
+
+        assertEquals(0, revokedScore.points)
+        assertEquals(0, staleScore.points)
+    }
+
+    @Test
+    fun `confirmation covers only the goal and date it was given for`() {
+        val challenge = challenge(
+            id = "peer-scope",
+            mode = ChallengeMode.DAILY,
+            start = start,
+            end = start.plusDays(1),
+            goals = listOf(
+                goal("running", target = 5.0),
+                goal("plank", target = 2.0, proof = ProofType.VIDEO)
+            ),
+            participants = listOf("A", "B")
+        )
+        val checkIns = listOf(
+            checkIn(
+                challenge.id, "A", start,
+                result("running", 5.0, withProof = false),
+                result("plank", 2.0, withProof = false)
+            )
+        )
+        val confirmations = listOf(
+            confirmation(challenge.id, "A", start, "running", "B", 5.0),
+            confirmation(challenge.id, "A", start.plusDays(1), "plank", "B", 2.0)
+        )
+
+        val score = ChallengeEngine.scoreParticipant(
+            challenge, "A", checkIns, profiles("A", "B"), start, confirmations = confirmations
+        )
+        val goalScores = score.periods.first().goalScores
+
+        assertTrue(goalScores.first { it.goal.id == "running" }.completed)
+        assertFalse(goalScores.first { it.goal.id == "plank" }.completed)
+        assertEquals(1, score.points)
+    }
+
+    @Test
+    fun `one peer confirmation is enough and the author keeps media as an alternative`() {
+        val challenge = challenge(
+            id = "peer-one",
+            mode = ChallengeMode.DAILY,
+            start = start,
+            end = start,
+            goals = listOf(goal("running", target = 5.0)),
+            participants = listOf("A", "B", "C")
+        )
+        val checkIns = listOf(
+            checkIn(challenge.id, "A", start, result("running", 5.0, photo("run")))
+        )
+        val confirmations = listOf(
+            confirmation(challenge.id, "A", start, "running", "B", 5.0),
+            confirmation(challenge.id, "A", start, "running", "C", 5.0)
+        )
+
+        val score = ChallengeEngine.scoreParticipant(
+            challenge,
+            "A",
+            checkIns,
+            profiles("A", "B", "C"),
+            start,
+            confirmations = confirmations
+        )
+
+        assertEquals(1, score.points)
+        val goalScore = score.periods.single().goalScores.single()
+        assertTrue(goalScore.hasProof)
+        assertEquals(2, goalScore.peerConfirmations.size)
+    }
+
+    private fun confirmation(
+        challengeId: String,
+        userCode: String,
+        date: LocalDate,
+        goalId: String,
+        confirmerCode: String,
+        actual: Double,
+        revoked: Boolean = false
+    ): PeerConfirmation = PeerConfirmation(
+        challengeId = challengeId,
+        checkInUserCode = userCode,
+        date = date.toString(),
+        goalId = goalId,
+        confirmerCode = confirmerCode,
+        actual = actual,
+        createdAt = "${date}T11:00:00Z",
+        updatedAt = "${date}T11:00:00Z",
+        revoked = revoked
+    )
+
     private fun challenge(
         id: String,
         mode: ChallengeMode,

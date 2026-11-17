@@ -171,7 +171,7 @@ fun SetupProfileScreen(vm: AppViewModel) {
         if (profile != null) {
             Spacer(Modifier.height(18.dp))
             InfoBanner(
-                text = "Ваш код участника: ${profile.code}. По нему создаётся папка подтверждений confirmations/${profile.code}/ на GitHub."
+                text = "Ваш код участника: ${profile.code}. Он используется для синхронизации и участия в челленджах."
             )
         }
     }
@@ -182,7 +182,6 @@ fun SetupProfileScreen(vm: AppViewModel) {
 fun ProfileScreen(vm: AppViewModel) {
     val data by vm.data.collectAsStateWithLifecycle()
     val profile = data.currentProfile()
-    val config by vm.config.collectAsStateWithLifecycle()
     val myChallenges = data.challenges.filter { challenge ->
         profile != null && challenge.participantCodes.contains(profile.code)
     }.sortedByDescending { it.startDate }
@@ -190,7 +189,11 @@ fun ProfileScreen(vm: AppViewModel) {
     val totalPoints = if (profile != null) {
         myChallenges.sumOf { challenge ->
             com.onlinechallenges.app.data.ChallengeEngine.scoreParticipant(
-                challenge, profile.code, data.checkIns, data.profiles
+                challenge,
+                profile.code,
+                data.checkIns,
+                data.profiles,
+                confirmations = data.confirmations
             ).points
         }
     } else 0
@@ -296,15 +299,6 @@ fun ProfileScreen(vm: AppViewModel) {
                         ProfileInfoRow("Пол", profile?.gender?.label ?: "—")
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         ProfileInfoRow("Код участника", profile?.code ?: "—")
-                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                        ProfileInfoRow("Папка на GitHub", "confirmations/${profile?.code ?: "..."}/")
-                        if (config.token.isBlank()) {
-                            Spacer(Modifier.height(10.dp))
-                            InfoBanner(
-                                text = "GitHub ещё не подключён. Настройте токен, чтобы участвовать в общих челленджах и загружать подтверждения.",
-                                warning = true
-                            )
-                        }
                     }
                 }
                 Spacer(Modifier.height(20.dp))
@@ -330,6 +324,7 @@ fun ProfileScreen(vm: AppViewModel) {
                         currentUserCode = profile?.code,
                         allCheckIns = data.checkIns,
                         profiles = data.profiles,
+                        confirmations = data.confirmations,
                         onClick = { vm.openChallenge(challenge.id) }
                     )
                 }
@@ -338,8 +333,8 @@ fun ProfileScreen(vm: AppViewModel) {
         item {
             Spacer(Modifier.height(12.dp))
             LinkRow(
-                title = "Синхронизация с GitHub",
-                subtitle = if (config.isConfigured) "${config.owner}/${config.repo}" else "Не настроена",
+                title = "Синхронизация",
+                subtitle = null,
                 onClick = { vm.openSettings() }
             )
             Text(

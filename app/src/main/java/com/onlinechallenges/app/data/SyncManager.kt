@@ -26,7 +26,7 @@ class SyncManager(
         withContext(Dispatchers.IO) {
             val config = prefs.load()
             if (!config.isConfigured) {
-                throw GitHubException("Укажите GitHub-токен в настройках синхронизации")
+                throw GitHubException("Синхронизация не настроена")
             }
             try {
                 val summary = doSync(config)
@@ -53,28 +53,32 @@ class SyncManager(
         val remoteChallenges = readFile(client, PATH_CHALLENGES, cache)
         val remoteProfiles = readFile(client, PATH_PROFILES, cache)
         val remoteCheckIns = readFile(client, PATH_CHECKINS, cache)
+        val remoteConfirmations = readFile(client, PATH_CONFIRMATIONS, cache)
 
         val before = repo.snapshot()
         val remoteActivities = parseActivities(remoteCatalog?.text)
         val remoteChallengesList = parseChallenges(remoteChallenges?.text)
         val remoteProfilesList = parseProfiles(remoteProfiles?.text)
         val remoteCheckInsList = parseCheckIns(remoteCheckIns?.text)
+        val remoteConfirmationsList = parseConfirmations(remoteConfirmations?.text)
 
         val merged = Awards.apply(
             before.copy(
                 activities = mergeActivities(before.activities, remoteActivities),
                 challenges = mergeChallenges(before.challenges, remoteChallengesList),
                 profiles = mergeProfiles(before.profiles, remoteProfilesList),
-                checkIns = mergeCheckIns(before.checkIns, remoteCheckInsList)
+                checkIns = mergeCheckIns(before.checkIns, remoteCheckInsList),
+                confirmations = mergeConfirmations(before.confirmations, remoteConfirmationsList)
             )
         )
         repo.replace(merged)
 
-        // Сначала публикуем структуру: каталог, челленджи, профили и отметки.
+        // Сначала публикуем структуру: каталог, челленджи, профили, отметки и подтверждения.
         pushJson(client, PATH_CATALOG, catalogJson(merged.activities), "Sync catalog", cache)
         pushJson(client, PATH_CHALLENGES, challengesJson(merged.challenges), "Sync challenges", cache)
         pushJson(client, PATH_PROFILES, profilesJson(merged.profiles), "Sync profiles", cache)
         pushJson(client, PATH_CHECKINS, checkInsJson(merged.checkIns), "Sync check-ins", cache)
+        pushJson(client, PATH_CONFIRMATIONS, confirmationsJson(merged.confirmations), "Sync confirmations", cache)
 
         val warnings = mutableListOf<String>()
         uploadAvatars(repo, client, config, warnings)
@@ -85,9 +89,7 @@ class SyncManager(
         pushJson(client, PATH_CHECKINS, checkInsJson(afterUploads.checkIns), "Sync proof paths", cache)
 
         val standings = StandingsBuilder.build(afterUploads, config)
-        val manifest = StandingsBuilder.manifest(afterUploads, config)
         pushJson(client, PATH_STANDINGS, standings, "Sync standings", cache)
-        pushJson(client, PATH_MANIFEST, manifest, "Sync confirmations manifest", cache)
 
         val realChallenges = afterUploads.challenges.count { !it.isDemo }
         val realCheckIns = afterUploads.checkIns.count { !it.isDemo }
@@ -258,6 +260,11 @@ class SyncManager(
             JSONObject(text).optJSONArray("checkIns").toList { CheckIn.fromJson(it) }
         }.getOrDefault(emptyList())
 
+    private fun parseConfirmations(text: String?): List<PeerConfirmation> =
+        if (text.isNullOrBlank()) emptyList() else runCatching {
+            JSONObject(text).optJSONArray("confirmations").toList { PeerConfirmation.fromJson(it) }
+        }.getOrDefault(emptyList())
+
     private fun catalogJson(activities: List<ActivityType>): JSONObject = JSONObject()
         .put("version", 1)
         .put("activities", JSONArray(activities.map { it.toJson() }))
@@ -273,6 +280,10 @@ class SyncManager(
     private fun checkInsJson(checkIns: List<CheckIn>): JSONObject = JSONObject()
         .put("version", 1)
         .put("checkIns", JSONArray(checkIns.filterNot { it.isDemo }.map { it.toSyncJson() }))
+
+    private fun confirmationsJson(confirmations: List<PeerConfirmation>): JSONObject = JSONObject()
+        .put("version", 1)
+        .put("confirmations", JSONArray(confirmations.filterNot { it.isDemo }.map { it.toSyncJson() }))
 
     private fun mergeActivities(
         local: List<ActivityType>,
@@ -359,6 +370,26 @@ class SyncManager(
     private fun key(checkIn: CheckIn): String =
         "${checkIn.challengeId}|${checkIn.userCode}|${checkIn.date}"
 
+    private fun mergeConfirmations(
+        local: List<PeerConfirmation>,
+        remote: List<PeerConfirmation>
+    ): List<PeerConfirmation> {
+        val demos = local.filter { it.isDemo }
+        val map = LinkedHashMap<String, PeerConfirmation>()
+        local.filterNot { it.isDemo }.forEach { map[it.key] = it }
+        for (remoteConfirmation in remote) {
+            val localConfirmation = map[remoteConfirmation.key]
+            map[remoteConfirmation.key] = if (localConfirmation == null) {
+                remoteConfirmation.copy(isDemo = false)
+            } else if (remoteConfirmation.updatedAt > localConfirmation.updatedAt) {
+                remoteConfirmation.copy(isDemo = false)
+            } else {
+                localConfirmation
+            }
+        }
+        return demos + map.values
+    }
+
     private fun mergeResults(
         local: List<GoalResult>,
         remote: List<GoalResult>,
@@ -411,7 +442,7 @@ class SyncManager(
         const val PATH_CHALLENGES = "data/challenges.json"
         const val PATH_PROFILES = "data/profiles.json"
         const val PATH_CHECKINS = "data/checkins.json"
+        const val PATH_CONFIRMATIONS = "data/confirmations.json"
         const val PATH_STANDINGS = "data/standings.json"
-        const val PATH_MANIFEST = "confirmations/manifest.json"
     }
 }

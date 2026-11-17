@@ -18,7 +18,17 @@ object StandingsBuilder {
 
         val userTotals = profiles.associate { profile ->
             val scores = challenges.filter { it.participantCodes.contains(profile.code) }
-                .map { ChallengeEngine.scoreParticipant(it, profile.code, checkIns, profiles, today, includeFuture = false) }
+                .map {
+                    ChallengeEngine.scoreParticipant(
+                        it,
+                        profile.code,
+                        checkIns,
+                        profiles,
+                        today,
+                        includeFuture = false,
+                        confirmations = data.confirmations
+                    )
+                }
             profile.code to JSONObject()
                 .put("code", profile.code)
                 .put("name", profile.name)
@@ -39,7 +49,12 @@ object StandingsBuilder {
             .sortedWith(compareBy<Challenge> { it.status(today).ordinal }.thenByDescending { it.endDate })
             .map { challenge ->
                 val scores = ChallengeEngine.scoreChallenge(
-                    challenge, checkIns, profiles, today, includeFuture = false
+                    challenge,
+                    checkIns,
+                    profiles,
+                    today,
+                    includeFuture = false,
+                    confirmations = data.confirmations
                 )
                 val participants = JSONArray()
                 scores.forEach { score ->
@@ -74,6 +89,17 @@ object StandingsBuilder {
                     checkIn.results.forEach { result ->
                         val goal = challenge.goals.firstOrNull { it.id == result.goalId } ?: return@forEach
                         val proofs = ChallengeEngine.validProofs(result.attachments, goal.proofType)
+                        val confirmations = ChallengeEngine.activeConfirmations(
+                            challenge,
+                            checkIn,
+                            goal.id,
+                            result.actual,
+                            data.confirmations
+                        )
+                        val confirmedBy = confirmations.mapNotNull { confirmation ->
+                            profileMap[confirmation.confirmerCode]?.name
+                                ?: confirmation.confirmerCode.takeIf { it.isNotBlank() }
+                        }
                         results.put(
                             JSONObject()
                                 .put("goal", goal.name)
@@ -81,15 +107,8 @@ object StandingsBuilder {
                                 .put("actual", result.actual)
                                 .put("target", goal.target)
                                 .put("unit", goal.unit)
-                                .put("completed", result.actual >= goal.target && proofs.isNotEmpty())
-                                .put("proofs", JSONArray(proofs.mapNotNull { attachment ->
-                                    attachment.remotePath?.let { path ->
-                                        JSONObject()
-                                            .put("path", path)
-                                            .put("url", config.pagesUrl + path)
-                                            .put("type", attachment.type.name)
-                                    }
-                                }))
+                                .put("completed", result.actual >= goal.target && (proofs.isNotEmpty() || confirmations.isNotEmpty()))
+                                .put("confirmedBy", JSONArray(confirmedBy))
                         )
                     }
                     recent.put(
@@ -125,9 +144,17 @@ object StandingsBuilder {
                     .put("recent", recent)
             }
 
-        val confirmationCount = checkIns.sumOf { checkIn ->
-            checkIn.results.sumOf { result -> result.attachments.count { !it.remotePath.isNullOrBlank() } }
-        }
+        val confirmationCount = data.confirmations
+            .filterNot { it.isDemo }
+            .filter { confirmation ->
+                val challenge = challenges.firstOrNull { it.id == confirmation.challengeId } ?: return@filter false
+                !confirmation.revoked &&
+                    challenge.participantCodes.contains(confirmation.confirmerCode) &&
+                    challenge.participantCodes.contains(confirmation.checkInUserCode) &&
+                    confirmation.confirmerCode != confirmation.checkInUserCode
+            }
+            .distinctBy { it.key }
+            .size
 
         return JSONObject()
             .put("version", 1)
@@ -135,56 +162,14 @@ object StandingsBuilder {
             .put("app", "Онлайн челленджи")
             .put("pagesUrl", config.pagesUrl)
             .put("repoUrl", config.repoUrl)
-            .put("scoring", "1 балл за каждую полностью выполненную цель. Частичное выполнение баллов не даёт.")
+            .put("scoring", "1 балл за каждую полностью выполненную цель с фото, видео или подтверждением другого участника. Частичное выполнение баллов не даёт.")
             .put("totals", JSONObject()
                 .put("users", profiles.size)
                 .put("challenges", challenges.size)
+                .put("goals", challenges.sumOf { it.goals.size })
                 .put("confirmations", confirmationCount))
             .put("users", JSONArray(userTotals))
             .put("challenges", JSONArray(challengeJson))
-    }
-
-    fun manifest(
-        data: AppData,
-        config: GitHubConfig,
-        today: LocalDate = LocalDate.now()
-    ): JSONObject {
-        val challenges = data.challenges.filterNot { it.isDemo }.associateBy { it.id }
-        val profiles = data.profiles.filterNot { it.isDemo }.associateBy { it.code }
-        val files = JSONArray()
-        data.checkIns.filterNot { it.isDemo }
-            .sortedByDescending { it.date }
-            .forEach { checkIn ->
-                val challenge = challenges[checkIn.challengeId] ?: return@forEach
-                checkIn.results.forEach { result ->
-                    val goal = challenge.goals.firstOrNull { it.id == result.goalId } ?: return@forEach
-                    result.attachments.filter { !it.remotePath.isNullOrBlank() }.forEach { attachment ->
-                        val path = attachment.remotePath ?: return@forEach
-                        files.put(
-                            JSONObject()
-                                .put("path", path)
-                                .put("url", config.pagesUrl + path)
-                                .put("rawUrl", "https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch}/$path")
-                                .put("userCode", checkIn.userCode)
-                                .put("userName", profiles[checkIn.userCode]?.name ?: "Участник")
-                                .put("challengeId", checkIn.challengeId)
-                                .put("challengeTitle", challenge.title)
-                                .put("date", checkIn.date)
-                                .put("goalId", goal.id)
-                                .put("goalName", goal.name)
-                                .put("type", attachment.type.name)
-                                .put("mime", attachment.mime)
-                                .put("size", attachment.sizeBytes)
-                                .put("uploadedAt", attachment.uploadedAt ?: "")
-                        )
-                    }
-                }
-            }
-        return JSONObject()
-            .put("version", 1)
-            .put("generatedAt", isoNow())
-            .put("total", files.length())
-            .put("files", files)
     }
 
     private fun avatarUrl(config: GitHubConfig, profile: Profile?): String {

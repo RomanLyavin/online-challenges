@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0f766e">
-  <title>Онлайн челленджи — результаты и подтверждения</title>
-  <meta name="description" content="Публичные итоги онлайн-челленджей: участники, баллы, места, медали и фото/видео подтверждения.">
+  <title>Онлайн челленджи — результаты и медали</title>
+  <meta name="description" content="Публичные итоги онлайн-челленджей: участники, баллы, места и медали.">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/styles.css">
 </head>
@@ -18,13 +18,12 @@
         <span class="brand-mark" aria-hidden="true">🏆</span>
         <span class="brand-text">
           <strong>Онлайн челленджи</strong>
-          <small>результаты · медали · подтверждения</small>
+          <small>результаты · медали · челленджи</small>
         </span>
       </a>
       <nav class="main-nav" aria-label="Разделы">
         <a href="#leaderboard">Рейтинг</a>
         <a href="#challenges">Челленджи</a>
-        <a href="#confirmations">Подтверждения</a>
         <a href="#about">Правила</a>
       </nav>
       <div class="header-actions">
@@ -41,8 +40,9 @@
           <span class="eyebrow">Публичная статистика</span>
           <h1>Дисциплина, которую видно</h1>
           <p>
-            Участники выполняют ежедневные цели, прикладывают фото и видео и получают баллы.
-            Здесь собраны итоги челленджей, места, медали и все подтверждения.
+            Участники выполняют ежедневные цели, подтверждают результаты фото, видео
+            или галочкой другого участника и получают баллы. Здесь собраны итоги
+            челленджей, места и медали.
           </p>
           <div class="hero-actions">
             <a class="button button-primary" id="apk-link" href="https://github.com/RomanLyavin/online-challenges/releases/latest" target="_blank" rel="noopener">
@@ -67,8 +67,8 @@
               <span>челленджей</span>
             </div>
             <div class="summary-item">
-              <strong id="stat-confirmations">—</strong>
-              <span>подтверждений</span>
+              <strong id="stat-goals">—</strong>
+              <span>целей</span>
             </div>
             <div class="summary-item">
               <strong>1</strong>
@@ -106,7 +106,7 @@
             <span class="eyebrow">Соревнования</span>
             <h2>Челленджи</h2>
           </div>
-          <p class="section-lead">Условия, участники, баллы и последние подтверждённые результаты.</p>
+          <p class="section-lead">Условия, участники, баллы и последние результаты.</p>
         </div>
         <div class="toolbar">
           <div class="chips" id="challenge-filters" role="group" aria-label="Фильтр по статусу">
@@ -126,28 +126,6 @@
       </div>
     </section>
 
-    <section class="section" id="confirmations">
-      <div class="container">
-        <div class="section-head">
-          <div>
-            <span class="eyebrow">Доказательства</span>
-            <h2>Подтверждения</h2>
-          </div>
-          <p class="section-lead">Все фото и видео, загруженные участниками в папки <code>confirmations/&lt;код&gt;/</code>.</p>
-        </div>
-        <div class="toolbar">
-          <label class="search search-wide">
-            <span class="sr-only">Поиск по подтверждениям</span>
-            <input id="confirmation-search" type="search" placeholder="Поиск по имени, коду, челленджу…" autocomplete="off">
-          </label>
-          <span class="counter" id="confirmation-counter"></span>
-        </div>
-        <div id="confirmations-panel">
-          <div class="loading">Загружаем подтверждения…</div>
-        </div>
-      </div>
-    </section>
-
     <section class="section section-alt" id="about">
       <div class="container about-grid">
         <div>
@@ -155,8 +133,8 @@
           <h2>Правила и баллы</h2>
           <ol class="rules">
             <li><strong>Цель дня.</strong> Каждый челлендж состоит из одной или нескольких измеримых целей.</li>
-            <li><strong>Подтверждение.</strong> Для шагов, пробежки и сна нужен скриншот, для планки, отжиманий и приседаний — видео.</li>
-            <li><strong>Один балл.</strong> Балл начисляется только за полностью выполненную цель с подходящим подтверждением. Частичный результат баллов не даёт.</li>
+            <li><strong>Подтверждение.</strong> Результат засчитывается с подходящим фото или видео либо после галочки другого участника челленджа.</li>
+            <li><strong>Один балл.</strong> Балл начисляется только за полностью выполненную цель с подтверждением. Частичный результат баллов не даёт.</li>
             <li><strong>Без бонусов.</strong> Превышение цели не добавляет баллов.</li>
             <li><strong>Режимы.</strong> «Каждый день», «каждые N дней» (результаты складываются внутри окна) и «всего за период» (общая цель).</li>
             <li><strong>Финал.</strong> После завершения челленджа первые три места получают медали в профиль.</li>

@@ -87,7 +87,7 @@ fun CatalogScreen(vm: AppViewModel) {
         item {
             Spacer(Modifier.height(12.dp))
             Text(
-                "Подтверждение: для шагов, пробежки и сна обычно подходит скриншот трекера; для планки, отжиманий и приседаний — видео.",
+                "Подтверждение: для шагов, пробежки и сна обычно подходит скриншот трекера; для планки, отжиманий и приседаний — видео. Любую цель также может подтвердить галочкой другой участник челленджа.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

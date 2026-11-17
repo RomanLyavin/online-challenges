@@ -3,10 +3,8 @@
 
   const state = {
     data: null,
-    manifest: null,
     challengeFilter: "ALL",
     challengeQuery: "",
-    confirmationQuery: "",
     theme: null
   };
 
@@ -55,24 +53,6 @@
   function formatNumber(value) {
     const parsed = num(value);
     return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(parsed);
-  }
-
-  function formatBytes(value) {
-    const bytes = num(value);
-    if (bytes <= 0) return "";
-    const units = ["Б", "КБ", "МБ", "ГБ"];
-    let size = bytes;
-    let index = 0;
-    while (size >= 1024 && index < units.length - 1) {
-      size /= 1024;
-      index += 1;
-    }
-    const fractionDigits = index === 0 ? 0 : 1;
-    const formatted = new Intl.NumberFormat("ru-RU", {
-      minimumFractionDigits: fractionDigits,
-      maximumFractionDigits: fractionDigits
-    }).format(size);
-    return formatted + " " + units[index];
   }
 
   function formatDate(value) {
@@ -138,15 +118,6 @@
     return STATUS[key] || { label: text(challenge && challenge.statusLabel, "Статус"), className: "FINISHED" };
   }
 
-  function proofTypeLabel(type) {
-    return String(type || "").toUpperCase() === "VIDEO" ? "видео" : "фото";
-  }
-
-  function userByCode(code) {
-    if (!state.data || !Array.isArray(state.data.users)) return null;
-    return state.data.users.find((user) => user && user.code === code) || null;
-  }
-
   function emptyState(emoji, title, message, action) {
     return '<div class="empty">' +
       '<span class="empty-emoji" aria-hidden="true">' + escapeHtml(emoji) + "</span>" +
@@ -161,14 +132,14 @@
     const totals = data.totals || {};
     const users = Array.isArray(data.users) ? data.users : [];
     const challenges = Array.isArray(data.challenges) ? data.challenges : [];
-    const manifestTotal = state.manifest && Number(state.manifest.total);
-    const confirmations = Number.isFinite(manifestTotal) && manifestTotal > 0
-      ? manifestTotal
-      : num(totals.confirmations);
+    const goals = challenges.reduce((sum, challenge) => {
+      const list = Array.isArray(challenge && challenge.goals) ? challenge.goals : [];
+      return sum + list.length;
+    }, 0);
 
     $("#stat-users").textContent = String(num(totals.users, users.length));
     $("#stat-challenges").textContent = String(num(totals.challenges, challenges.length));
-    $("#stat-confirmations").textContent = String(confirmations);
+    $("#stat-goals").textContent = String(num(totals.goals, goals));
 
     const generated = data.generatedAt ? "Обновлено " + formatDateTime(data.generatedAt) : "";
     $("#generated-note").textContent = generated
@@ -271,29 +242,27 @@
   function recentHtml(challenge) {
     const recent = Array.isArray(challenge.recent) ? challenge.recent.slice(0, 6) : [];
     if (!recent.length) {
-      return '<div class="empty">Подтверждённых отметок пока нет.</div>';
+      return '<div class="empty">Отметок пока нет.</div>';
     }
     return '<div class="recent-list">' + recent.map((entry) => {
       const results = Array.isArray(entry.results) ? entry.results : [];
       const goals = results.map((result) => {
         const className = result.completed ? "ok" : "partial";
-        return '<div class="' + className + '">' + escapeHtml(text(result.emoji, "•")) + " " +
+        const line = '<div class="' + className + '">' + escapeHtml(text(result.emoji, "•")) + " " +
           escapeHtml(text(result.goal, "Цель")) + ": " + escapeHtml(formatNumber(result.actual)) + " / " +
           escapeHtml(formatNumber(result.target)) + " " + escapeHtml(text(result.unit, "")) + "</div>";
-      }).join("");
-      const proofs = results.flatMap((result) => Array.isArray(result.proofs) ? result.proofs : []);
-      const proofLinks = proofs.map((proof) => {
-        const url = safeUrl(proof.url);
-        if (!url) return "";
-        const isVideo = String(proof.type || "").toUpperCase() === "VIDEO";
-        return '<a class="proof-link" href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' +
-          (isVideo ? "🎬 Видео" : "📷 Фото") + "</a>";
+        const confirmedBy = Array.isArray(result.confirmedBy)
+          ? result.confirmedBy.map((name) => text(name, "")).filter(Boolean)
+          : [];
+        const confirm = confirmedBy.length
+          ? '<div class="recent-confirm">✓ Подтверждено: ' + escapeHtml(confirmedBy.join(", ")) + "</div>"
+          : "";
+        return line + confirm;
       }).join("");
       return '<div class="recent-item">' +
         '<div class="recent-top"><span class="recent-name">' + escapeHtml(text(entry.name, "Участник")) + "</span>" +
         '<span class="recent-date">' + escapeHtml(formatShortDate(entry.date)) + "</span></div>" +
         '<div class="recent-goals">' + goals + "</div>" +
-        (proofLinks ? '<div class="recent-proofs">' + proofLinks + "</div>" : "") +
         "</div>";
     }).join("") + "</div>";
   }
@@ -323,7 +292,7 @@
       '<div class="challenge-columns">' +
       '<div class="subpanel"><div class="subpanel-head"><span>Участники и баллы</span><span>' + participantCount + "</span></div>" +
       participantsHtml(challenge) + "</div>" +
-      '<div class="subpanel"><div class="subpanel-head"><span>Последние отметки</span><span>с подтверждением</span></div>' +
+      '<div class="subpanel"><div class="subpanel-head"><span>Последние отметки</span><span>за последнее время</span></div>' +
       recentHtml(challenge) + "</div>" +
       "</div></div></article>";
   }
@@ -357,90 +326,6 @@
     panel.innerHTML = '<div class="challenge-list">' + filtered.map(challengeCard).join("") + "</div>";
   }
 
-  function confirmationCard(file) {
-    const isVideo = String(file.type || "").toUpperCase() === "VIDEO";
-    const url = safeUrl(file.url) || safeUrl(file.rawUrl);
-    const title = text(file.goalName, "Цель");
-    const challenge = text(file.challengeTitle, "Челлендж");
-    const thumbnail = isVideo
-      ? '<span aria-hidden="true">🎬</span>'
-      : '<span aria-hidden="true">📷</span>';
-    const openLink = url
-      ? '<a class="conf-open" href="' + escapeHtml(url) + '" target="_blank" rel="noopener">Открыть ' + escapeHtml(proofTypeLabel(file.type)) + " →</a>"
-      : '<span class="conf-sub">Файл недоступен</span>';
-    const size = formatBytes(file.size);
-    return '<article class="conf-card">' +
-      '<a class="conf-thumb" ' + (url ? 'href="' + escapeHtml(url) + '" target="_blank" rel="noopener"' : "") + ">" +
-      (isVideo || !url
-        ? thumbnail
-        : '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(title + " — " + challenge) + '" loading="lazy" onerror="this.parentNode.innerHTML=\'📷\'">') +
-      "</a>" +
-      '<div class="conf-info">' +
-      '<div class="conf-title">' + escapeHtml(title) + "</div>" +
-      '<div class="conf-sub">' + escapeHtml(challenge) + "</div>" +
-      '<div class="conf-sub">' + escapeHtml(formatDate(file.date)) + (size ? " · " + escapeHtml(size) : "") + "</div>" +
-      '<div class="conf-actions"><span class="tag">' + (isVideo ? "🎬 Видео" : "📷 Фото") + "</span>" + openLink + "</div>" +
-      "</div></article>";
-  }
-
-  function renderConfirmations() {
-    const panel = $("#confirmations-panel");
-    const counter = $("#confirmation-counter");
-    if (!panel) return;
-    const files = state.manifest && Array.isArray(state.manifest.files) ? state.manifest.files : [];
-    const query = state.confirmationQuery.trim().toLowerCase();
-    const filtered = files.filter((file) => {
-      if (!query) return true;
-      const haystack = [file.userName, file.userCode, file.challengeTitle, file.goalName, file.date]
-        .join(" ").toLowerCase();
-      return haystack.includes(query);
-    });
-
-    if (counter) {
-      counter.textContent = filtered.length
-        ? filtered.length + " " + plural(filtered.length, "файл", "файла", "файлов")
-        : "";
-    }
-
-    if (!files.length) {
-      panel.innerHTML = emptyState(
-        "📎",
-        "Подтверждений пока нет",
-        "Фото и видео сохраняются в папки confirmations/<код участника>/ после синхронизации из приложения."
-      );
-      return;
-    }
-    if (!filtered.length) {
-      panel.innerHTML = emptyState("🔎", "Ничего не найдено", "Попробуйте изменить поисковый запрос.");
-      return;
-    }
-
-    const groups = new Map();
-    filtered.forEach((file) => {
-      const code = text(file.userCode, "unknown");
-      if (!groups.has(code)) groups.set(code, []);
-      groups.get(code).push(file);
-    });
-
-    const sorted = Array.from(groups.entries()).sort((a, b) => {
-      const nameA = text(a[1][0] && a[1][0].userName, a[0]);
-      const nameB = text(b[1][0] && b[1][0].userName, b[0]);
-      return nameA.localeCompare(nameB, "ru");
-    });
-
-    panel.innerHTML = sorted.map(([code, groupFiles]) => {
-      const user = userByCode(code);
-      const name = text(groupFiles[0] && groupFiles[0].userName, user && user.name, "Участник");
-      const avatarUrl = user && user.avatarUrl;
-      return '<section class="conf-group">' +
-        '<div class="conf-group-head"><div class="conf-user">' + avatar(name, avatarUrl) +
-        "<div>" + escapeHtml(name) + "<small>" + escapeHtml(code) + "</small></div></div>" +
-        '<span class="counter">' + groupFiles.length + " " + plural(groupFiles.length, "файл", "файла", "файлов") + "</span></div>" +
-        '<div class="conf-grid">' + groupFiles.map(confirmationCard).join("") + "</div>" +
-        "</section>";
-    }).join("");
-  }
-
   function bindEvents() {
     const filters = $("#challenge-filters");
     if (filters) {
@@ -460,14 +345,6 @@
       challengeSearch.addEventListener("input", () => {
         state.challengeQuery = challengeSearch.value || "";
         renderChallenges();
-      });
-    }
-
-    const confirmationSearch = $("#confirmation-search");
-    if (confirmationSearch) {
-      confirmationSearch.addEventListener("input", () => {
-        state.confirmationQuery = confirmationSearch.value || "";
-        renderConfirmations();
       });
     }
 
@@ -522,16 +399,16 @@
     const html = emptyState(
       "⚠️",
       "Не удалось загрузить данные",
-      message + " Проверьте, что файлы data/standings.json и confirmations/manifest.json существуют и содержат корректный JSON.",
+      message + " Проверьте, что файл data/standings.json существует и содержит корректный JSON.",
       '<a class="button button-ghost" href="https://github.com/RomanLyavin/online-challenges" target="_blank" rel="noopener">Открыть репозиторий</a>'
     );
-    ["#leaderboard-panel", "#challenges-panel", "#confirmations-panel"].forEach((selector) => {
+    ["#leaderboard-panel", "#challenges-panel"].forEach((selector) => {
       const panel = $(selector);
       if (panel) panel.innerHTML = html;
     });
     $("#stat-users").textContent = "—";
     $("#stat-challenges").textContent = "—";
-    $("#stat-confirmations").textContent = "—";
+    $("#stat-goals").textContent = "—";
     $("#generated-note").textContent = "Данные недоступны.";
   }
 
@@ -554,16 +431,9 @@
       return;
     }
 
-    try {
-      state.manifest = await loadJson("confirmations/manifest.json");
-    } catch (error) {
-      state.manifest = { total: 0, files: [] };
-    }
-
     renderSummary();
     renderLeaderboard();
     renderChallenges();
-    renderConfirmations();
   }
 
   if (document.readyState === "loading") {

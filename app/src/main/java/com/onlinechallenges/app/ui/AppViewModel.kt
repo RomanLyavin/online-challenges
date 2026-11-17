@@ -24,6 +24,7 @@ import com.onlinechallenges.app.data.GitHubConfig
 import com.onlinechallenges.app.data.GoalResult
 import com.onlinechallenges.app.data.MediaException
 import com.onlinechallenges.app.data.MediaManager
+import com.onlinechallenges.app.data.PeerConfirmation
 import com.onlinechallenges.app.data.Profile
 import com.onlinechallenges.app.data.ProofType
 import com.onlinechallenges.app.data.SyncManager
@@ -468,6 +469,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         val existing = state.checkIn(challenge.id, profile.code, current.date)
         val now = isoNow()
+        val changedGoalIds = if (existing == null) emptySet() else challenge.goals
+            .filter { goal ->
+                val before = existing.resultFor(goal.id)?.actual ?: 0.0
+                val after = results.first { it.goalId == goal.id }.actual
+                kotlin.math.abs(before - after) >= 0.0001
+            }
+            .map { it.id }
+            .toSet()
         val checkIn = existing?.copy(
             results = results,
             note = current.note.trim(),
@@ -482,7 +491,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             createdAt = now,
             updatedAt = now
         )
-        repository.update { it.withCheckIn(checkIn) }
+        repository.update { data ->
+            val confirmations = if (changedGoalIds.isEmpty()) data.confirmations else data.confirmations.map { confirmation ->
+                if (confirmation.challengeId == checkIn.challengeId &&
+                    confirmation.checkInUserCode == checkIn.userCode &&
+                    confirmation.date == checkIn.date &&
+                    confirmation.goalId in changedGoalIds &&
+                    !confirmation.revoked
+                ) {
+                    confirmation.copy(revoked = true, updatedAt = now)
+                } else {
+                    confirmation
+                }
+            }
+            data.withCheckIn(checkIn).copy(confirmations = confirmations)
+        }
         Awards.awardFinishedChallenges(repository)
         draft.value = null
         back()
@@ -491,48 +514,68 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return null
     }
 
-    // ---------- Синхронизация ----------
-
-    fun saveGitHubConfig(
-        owner: String,
-        repo: String,
-        branch: String,
-        tokenInput: String,
-        autoSync: Boolean
-    ): String? {
-        if (owner.isBlank() || repo.isBlank()) return "Укажите владельца и репозиторий"
-        if (!Regex("^[A-Za-z0-9_.-]+$").matches(owner)) return "Некорректный владелец репозитория"
-        if (!Regex("^[A-Za-z0-9_.-]+$").matches(repo)) return "Некорректное имя репозитория"
-        val token = tokenInput.trim().ifBlank { syncPrefs.storedToken() }
-        val updated = GitHubConfig(
-            owner = owner.trim(),
-            repo = repo.trim(),
-            branch = branch.trim().ifBlank { "main" },
-            token = token,
-            autoSync = autoSync,
-            hasCustomToken = token.isNotBlank()
-        )
-        syncPrefs.save(updated)
-        config.value = syncPrefs.load()
-        uiMessage.value = "Настройки GitHub сохранены"
+    /**
+     * Ставит или снимает галочку подтверждения чужой цели.
+     * Подтверждать можно только до окончания челленджа и только участникам.
+     */
+    fun toggleConfirmation(checkIn: CheckIn, goalId: String, actual: Double): String? {
+        val state = repository.snapshot()
+        val profile = state.currentProfile() ?: return "Сначала войдите"
+        val challenge = state.challenge(checkIn.challengeId) ?: return "Челлендж не найден"
+        val today = LocalDate.now()
+        if (today.isAfter(challenge.end)) return "Челлендж завершён — подтверждения закрыты"
+        if (!challenge.participantCodes.contains(profile.code)) return "Вы не участвуете в челлендже"
+        if (checkIn.userCode == profile.code) return "Нельзя подтверждать свою отметку"
+        if (!challenge.participantCodes.contains(checkIn.userCode)) return "Участник не найден"
+        val goal = challenge.goals.firstOrNull { it.id == goalId } ?: return "Цель не найдена"
+        if (actual <= 0.0) return "Нет результата для подтверждения"
+        val now = isoNow()
+        val existing = state.confirmations.firstOrNull {
+            it.challengeId == challenge.id &&
+                it.checkInUserCode == checkIn.userCode &&
+                it.date == checkIn.date &&
+                it.goalId == goal.id &&
+                it.confirmerCode == profile.code
+        }
+        val alreadyActive = existing != null &&
+            !existing.revoked &&
+            kotlin.math.abs(existing.actual - actual) < 0.0001
+        val updated = when {
+            alreadyActive -> existing!!.copy(revoked = true, updatedAt = now)
+            existing == null -> PeerConfirmation(
+                challengeId = challenge.id,
+                checkInUserCode = checkIn.userCode,
+                date = checkIn.date,
+                goalId = goal.id,
+                confirmerCode = profile.code,
+                actual = actual,
+                createdAt = now,
+                updatedAt = now
+            )
+            else -> existing.copy(actual = actual, revoked = false, updatedAt = now)
+        }
+        repository.update { data ->
+            data.copy(confirmations = data.confirmations.filterNot { it.key == updated.key } + updated)
+        }
+        uiMessage.value = if (updated.revoked) "Подтверждение снято" else "Результат подтверждён"
+        autoSyncIfEnabled()
         return null
     }
 
-    fun clearGitHubToken() {
-        syncPrefs.clearToken()
-        val reloaded = syncPrefs.load()
-        config.value = reloaded
-        uiMessage.value = if (reloaded.token.isNotBlank()) {
-            "Личный токен удалён, используется встроенный"
-        } else {
-            "Токен удалён"
-        }
+    // ---------- Синхронизация ----------
+
+    fun saveSyncSettings(autoSync: Boolean): String? {
+        val current = syncPrefs.load()
+        syncPrefs.save(current.copy(autoSync = autoSync, token = ""))
+        config.value = syncPrefs.load()
+        uiMessage.value = "Настройки синхронизации сохранены"
+        return null
     }
 
     fun testConnection() {
         val current = syncPrefs.load()
         if (!current.isConfigured) {
-            syncState.value = syncState.value.copy(message = "Сначала укажите токен", error = true)
+            syncState.value = syncState.value.copy(message = "Синхронизация не настроена", error = true)
             return
         }
         viewModelScope.launch {
@@ -556,13 +599,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (syncState.value.running) return
         val current = syncPrefs.load()
         if (!current.isConfigured) {
-            uiMessage.value = "Укажите GitHub-токен в настройках"
+            uiMessage.value = "Синхронизация не настроена"
             return
         }
         viewModelScope.launch {
             syncState.value = SyncUiState(
                 running = true,
-                message = "Синхронизация с GitHub…",
+                message = "Синхронизация...",
                 error = false,
                 lastSync = syncState.value.lastSync
             )

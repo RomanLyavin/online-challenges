@@ -93,7 +93,13 @@ fun StatisticsScreen(
 
     val today = LocalDate.now()
     val finished = today.isAfter(challenge.end)
-    val scores = ChallengeEngine.scoreChallenge(challenge, data.checkIns, data.profiles, today)
+    val scores = ChallengeEngine.scoreChallenge(
+        challenge,
+        data.checkIns,
+        data.profiles,
+        today,
+        confirmations = data.confirmations
+    )
     val myCode = data.currentProfile()?.code
     val initialCode = selectedCode?.takeIf { code -> scores.any { it.code == code } }
         ?: myCode?.takeIf { code -> scores.any { it.code == code } }
@@ -243,8 +249,8 @@ fun StatisticsScreen(
                     Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
                         InfoBanner(
                             text = "Зелёный — все цели дня закрыты, жёлтый — частичный результат, красный — пропуск. " +
-                                "1 балл начисляется только за полностью выполненную цель с подтверждением нужного типа; " +
-                                "превышение цели баллов не добавляет."
+                                "1 балл начисляется только за полностью выполненную цель с фото/видео или " +
+                                "подтверждением другого участника; превышение цели баллов не добавляет."
                         )
                     }
                 }
@@ -490,11 +496,17 @@ private fun GoalDetailRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = color
             )
-            if (goalScore.actual >= goalScore.target && !goalScore.hasProof) {
+            if (goalScore.actual >= goalScore.target && !goalScore.hasProof && !goalScore.hasPeerConfirmation) {
                 Text(
                     "Цель достигнута, но нет ${goalScore.goal.proofType.label.lowercase()} — балл не начислен.",
                     style = MaterialTheme.typography.labelSmall,
                     color = ScoreColors.partial
+                )
+            } else if (goalScore.actual >= goalScore.target && goalScore.hasPeerConfirmation && !goalScore.hasProof) {
+                Text(
+                    "Подтверждено другим участником.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ScoreColors.complete
                 )
             } else if (goalScore.actual > 0.0 && goalScore.actual < goalScore.target) {
                 Text(

@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -83,12 +84,25 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
     val profile = data.currentProfile()
     val today = LocalDate.now()
     val status = challenge.status(today)
-    val scores = ChallengeEngine.scoreChallenge(challenge, data.checkIns, data.profiles, today)
+    val scores = ChallengeEngine.scoreChallenge(
+        challenge,
+        data.checkIns,
+        data.profiles,
+        today,
+        confirmations = data.confirmations
+    )
     val myScore = scores.firstOrNull { it.code == profile?.code }
     val currentPeriod = profile?.let {
-        ChallengeEngine.currentPeriod(challenge, it.code, data.checkIns, data.profiles, today)
+        ChallengeEngine.currentPeriod(
+            challenge,
+            it.code,
+            data.checkIns,
+            data.profiles,
+            today,
+            confirmations = data.confirmations
+        )
     }
-    val recent = ChallengeEngine.recentCheckIns(challenge, data.checkIns, 6)
+    val recent = ChallengeEngine.recentCheckIns(challenge, data.checkIns, 20)
     var actionError by remember(challenge.id) { mutableStateOf<String?>(null) }
     val joined = profile != null && challenge.participantCodes.contains(profile.code)
 
@@ -369,13 +383,13 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
         }
         item {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                SectionTitle("Кто уже что сделал", subtitle = "Последние подтверждённые отметки")
+                SectionTitle("Кто уже что сделал", subtitle = "Последние отметки участников")
                 Spacer(Modifier.height(6.dp))
                 if (recent.isEmpty()) {
                     EmptyState(
                         emoji = "📝",
                         title = "Отметок пока нет",
-                        text = "Станьте первым, кто добавит результат с подтверждением."
+                        text = "Станьте первым, кто добавит результат."
                     )
                 }
             }
@@ -408,7 +422,23 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                     checkIn.results.forEach { result ->
                         val goal = challenge.goals.firstOrNull { it.id == result.goalId } ?: return@forEach
                         val proofs = ChallengeEngine.validProofs(result.attachments, goal.proofType)
-                        val complete = result.actual >= goal.target && proofs.isNotEmpty()
+                        val confirmations = ChallengeEngine.activeConfirmations(
+                            challenge,
+                            checkIn,
+                            goal.id,
+                            result.actual,
+                            data.confirmations
+                        )
+                        val confirmerNames = confirmations.map { confirmation ->
+                            data.profiles.firstOrNull { it.code == confirmation.confirmerCode }?.name
+                                ?: confirmation.confirmerCode
+                        }.distinct()
+                        val myConfirmation = profile != null && confirmations.any { it.confirmerCode == profile.code }
+                        val canConfirm = profile != null &&
+                            profile.code != checkIn.userCode &&
+                            challenge.participantCodes.contains(profile.code) &&
+                            !today.isAfter(challenge.end)
+                        val complete = result.actual >= goal.target && (proofs.isNotEmpty() || confirmations.isNotEmpty())
                         Row(
                             modifier = Modifier.padding(vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -421,8 +451,38 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                                 color = if (complete) stateColor(PeriodState.COMPLETE) else stateColor(PeriodState.PARTIAL)
                             )
                             Spacer(Modifier.weight(1f))
-                            if (proofs.isEmpty()) {
-                                Text("без фото", style = MaterialTheme.typography.labelSmall, color = stateColor(PeriodState.MISSED))
+                            if (proofs.isEmpty() && confirmations.isEmpty()) {
+                                Text(
+                                    if (result.actual >= goal.target) "ждёт подтверждения" else "нет балла",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (result.actual >= goal.target) stateColor(PeriodState.PARTIAL) else stateColor(PeriodState.MISSED)
+                                )
+                            }
+                        }
+                        if (confirmerNames.isNotEmpty()) {
+                            Text(
+                                "✓ Подтверждено: ${confirmerNames.joinToString()}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = stateColor(PeriodState.COMPLETE),
+                                modifier = Modifier.padding(start = 24.dp, top = 1.dp)
+                            )
+                        }
+                        if (canConfirm) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(start = 16.dp, top = 1.dp)
+                            ) {
+                                Checkbox(
+                                    checked = myConfirmation,
+                                    onCheckedChange = {
+                                        actionError = vm.toggleConfirmation(checkIn, goal.id, result.actual)
+                                    }
+                                )
+                                Text(
+                                    if (myConfirmation) "Вы подтвердили" else "Подтвердить результат",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                         if (result.attachments.isNotEmpty()) {
@@ -443,7 +503,7 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
         item {
             Spacer(Modifier.height(10.dp))
             InfoBanner(
-                text = "Балл начисляется только за полностью выполненную цель с подтверждением нужного типа. Превышение цели не добавляет баллов. Частичный результат выделяется жёлтым, пропуск — красным.",
+                text = "Балл начисляется за полностью выполненную цель с фото, видео или подтверждением другого участника. Любой участник челленджа, кроме автора отметки, может поставить галочку до окончания челленджа. Превышение цели не добавляет баллов. Частичный результат выделяется жёлтым, пропуск — красным.",
                 modifier = Modifier.padding(horizontal = 20.dp)
             )
         }

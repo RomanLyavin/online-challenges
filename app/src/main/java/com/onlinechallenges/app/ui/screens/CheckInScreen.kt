@@ -156,12 +156,22 @@ fun CheckInScreen(vm: AppViewModel) {
         }
         goal.id to existing
     }
+    val savedCheckIn = data.checkIn(challenge.id, profile.code, current.date)
     val draftPreview = challenge.goals.map { goal ->
         val actual = parseInput(current.values[goal.id]) ?: 0.0
         val attachments = current.attachments[goal.id].orEmpty()
         val proofs = ChallengeEngine.validProofs(attachments, goal.proofType)
+        val peer = if (savedCheckIn != null) {
+            ChallengeEngine.activeConfirmations(
+                challenge,
+                savedCheckIn,
+                goal.id,
+                actual,
+                data.confirmations
+            )
+        } else emptyList()
         val total = (if (challenge.mode == ChallengeMode.DAILY) 0.0 else accumulated[goal.id] ?: 0.0) + actual
-        goal to (total >= goal.target && proofs.isNotEmpty())
+        goal to (total >= goal.target && (proofs.isNotEmpty() || peer.isNotEmpty()))
     }
     val previewPoints = draftPreview.count { it.second }
 
@@ -215,7 +225,7 @@ fun CheckInScreen(vm: AppViewModel) {
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "Балл — только за полную цель с подтверждением",
+                            "Балл — за полную цель с фото/видео или подтверждением участника",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -248,10 +258,19 @@ fun CheckInScreen(vm: AppViewModel) {
             val attachments = current.attachments[goal.id].orEmpty()
             val actual = parseInput(value) ?: 0.0
             val proofs = ChallengeEngine.validProofs(attachments, goal.proofType)
+            val peer = if (savedCheckIn != null) {
+                ChallengeEngine.activeConfirmations(
+                    challenge,
+                    savedCheckIn,
+                    goal.id,
+                    actual,
+                    data.confirmations
+                )
+            } else emptyList()
             val accumulatedBefore = accumulated[goal.id] ?: 0.0
             val totalWithInput = (if (challenge.mode == ChallengeMode.DAILY) 0.0 else accumulatedBefore) + actual
-            val complete = totalWithInput >= goal.target && proofs.isNotEmpty()
-            val needsProof = totalWithInput >= goal.target && proofs.isEmpty()
+            val complete = totalWithInput >= goal.target && (proofs.isNotEmpty() || peer.isNotEmpty())
+            val needsProof = totalWithInput >= goal.target && proofs.isEmpty() && peer.isEmpty()
             val busy = busyGoal == goal.id
             Card(
                 modifier = Modifier
@@ -308,9 +327,21 @@ fun CheckInScreen(vm: AppViewModel) {
                     if (needsProof) {
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "Нужно подтверждение: ${goal.proofType.label.lowercase()}. Без него балл не начислится.",
+                            "Нужно фото/видео или подтверждение другого участника. Без этого балл не начислится.",
                             style = MaterialTheme.typography.bodySmall,
                             color = stateColor(PeriodState.PARTIAL)
+                        )
+                    }
+                    if (peer.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        val names = peer.map { confirmation ->
+                            data.profiles.firstOrNull { it.code == confirmation.confirmerCode }?.name
+                                ?: confirmation.confirmerCode
+                        }.distinct()
+                        Text(
+                            "Подтверждено: ${names.joinToString()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = stateColor(PeriodState.COMPLETE)
                         )
                     }
                     Spacer(Modifier.height(10.dp))
@@ -387,7 +418,7 @@ fun CheckInScreen(vm: AppViewModel) {
             )
             Spacer(Modifier.height(12.dp))
             InfoBanner(
-                text = "Фото подходит для скриншотов шагов, пробежки и сна. Для планки, отжиманий, приседаний и пресса нужно видео. Видео автоматически сжимается до 720p, итоговый файл — до 25 МБ; фото тоже сжимаются.",
+                text = "Фото подходит для скриншотов шагов, пробежки и сна. Для планки, отжиманий, приседаний и пресса нужно видео. Можно не прикладывать файл: сохраните отметку, и другой участник подтвердит результат галочкой в блоке «Кто уже что сделал». Видео автоматически сжимается до 720p, итоговый файл — до 25 МБ; фото тоже сжимаются.",
                 warning = false
             )
             if (error != null) {

@@ -16,7 +16,13 @@ object Awards {
         var changed = false
         for (challenge in data.challenges) {
             if (!today.isAfter(challenge.end)) continue
-            val updates = ChallengeEngine.awardMedals(challenge, data.checkIns, profiles, today)
+            val updates = ChallengeEngine.awardMedals(
+                challenge,
+                data.checkIns,
+                profiles,
+                today,
+                confirmations = data.confirmations
+            )
             if (updates.isNotEmpty()) {
                 val byCode = updates.associateBy { it.code }
                 profiles = profiles.map { byCode[it.code] ?: it }

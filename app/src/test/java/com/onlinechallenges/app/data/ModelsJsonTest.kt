@@ -1,6 +1,7 @@
 package com.onlinechallenges.app.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -124,6 +125,31 @@ class ModelsJsonTest {
         assertTrue(json.has("remotePath"))
         assertTrue(!json.has("localPath"))
         assertNull(json.optStringOrNull("localPath"))
+    }
+
+    @Test
+    fun `peer confirmation survives a json roundtrip`() {
+        val confirmation = PeerConfirmation(
+            challengeId = "ch-1",
+            checkInUserCode = "U-ABC123",
+            date = "2026-11-03",
+            goalId = "g-1",
+            confirmerCode = "U-XYZ789",
+            actual = 12345.0,
+            createdAt = "2026-11-03T12:00:00Z",
+            updatedAt = "2026-11-03T12:05:00Z"
+        )
+
+        val restored = PeerConfirmation.fromJson(confirmation.toJson())
+
+        assertEquals(confirmation.key, restored.key)
+        assertEquals(confirmation.actual, restored.actual, 0.0001)
+        assertFalse(restored.revoked)
+        assertFalse(restored.isDemo)
+
+        val syncJson = confirmation.toSyncJson()
+        assertFalse(syncJson.has("isDemo"))
+        assertEquals("U-XYZ789", syncJson.getString("confirmerCode"))
     }
 
     @Test

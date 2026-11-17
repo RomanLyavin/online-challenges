@@ -64,6 +64,7 @@ import com.onlinechallenges.app.data.CheckIn
 import com.onlinechallenges.app.data.Dates
 import com.onlinechallenges.app.data.Gender
 import com.onlinechallenges.app.data.Medal
+import com.onlinechallenges.app.data.PeerConfirmation
 import com.onlinechallenges.app.data.PeriodState
 import com.onlinechallenges.app.data.Profile
 import com.onlinechallenges.app.ui.theme.BrandGradient
@@ -193,16 +194,31 @@ fun ChallengeCard(
     currentUserCode: String?,
     allCheckIns: List<CheckIn>,
     profiles: List<Profile>,
+    confirmations: List<PeerConfirmation> = emptyList(),
     onClick: () -> Unit
 ) {
     val today = LocalDate.now()
     val status = challenge.status(today)
     val joined = currentUserCode != null && challenge.participantCodes.contains(currentUserCode)
     val myScore = if (joined && currentUserCode != null) {
-        ChallengeEngine.scoreParticipant(challenge, currentUserCode, allCheckIns, profiles, today)
+        ChallengeEngine.scoreParticipant(
+            challenge,
+            currentUserCode,
+            allCheckIns,
+            profiles,
+            today,
+            confirmations = confirmations
+        )
     } else null
     val currentPeriod = if (joined && currentUserCode != null) {
-        ChallengeEngine.currentPeriod(challenge, currentUserCode, allCheckIns, profiles, today)
+        ChallengeEngine.currentPeriod(
+            challenge,
+            currentUserCode,
+            allCheckIns,
+            profiles,
+            today,
+            confirmations = confirmations
+        )
     } else null
     Card(
         onClick = onClick,

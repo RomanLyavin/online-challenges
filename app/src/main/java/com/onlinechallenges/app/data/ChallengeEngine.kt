@@ -18,9 +18,11 @@ data class GoalScore(
     val hasProof: Boolean,
     val completed: Boolean,
     val points: Int,
-    val attachments: List<Attachment> = emptyList()
+    val attachments: List<Attachment> = emptyList(),
+    val peerConfirmations: List<PeerConfirmation> = emptyList()
 ) {
     val progress: Double get() = if (target <= 0.0) 1.0 else (actual / target).coerceIn(0.0, 1.0)
+    val hasPeerConfirmation: Boolean get() = peerConfirmations.isNotEmpty()
 }
 
 data class PeriodScore(
@@ -69,15 +71,39 @@ object ChallengeEngine {
     fun validProofs(attachments: List<Attachment>, required: ProofType): List<Attachment> =
         attachments.filter { proofMatches(it.type, required) }
 
+    /**
+     * Подтверждения, которые действительно относятся к этой отметке и значению.
+     * Автор отметки не может подтвердить сам себя, а подтверждающий должен быть
+     * участником челленджа. При изменении значения старое подтверждение перестаёт
+     * действовать, пока участник не подтвердит новое значение.
+     */
+    fun activeConfirmations(
+        challenge: Challenge,
+        checkIn: CheckIn,
+        goalId: String,
+        actual: Double,
+        confirmations: List<PeerConfirmation>
+    ): List<PeerConfirmation> = confirmations.filter { confirmation ->
+        !confirmation.revoked &&
+            confirmation.challengeId == challenge.id &&
+            confirmation.checkInUserCode == checkIn.userCode &&
+            confirmation.date == checkIn.date &&
+            confirmation.goalId == goalId &&
+            confirmation.confirmerCode != checkIn.userCode &&
+            challenge.participantCodes.contains(confirmation.confirmerCode) &&
+            kotlin.math.abs(confirmation.actual - actual) < 0.0001
+    }
+
     fun scoreChallenge(
         challenge: Challenge,
         checkIns: List<CheckIn>,
         profiles: List<Profile>,
         today: LocalDate = LocalDate.now(),
-        includeFuture: Boolean = true
+        includeFuture: Boolean = true,
+        confirmations: List<PeerConfirmation> = emptyList()
     ): List<ParticipantScore> {
         val scores = challenge.participantCodes.map { code ->
-            scoreParticipant(challenge, code, checkIns, profiles, today, includeFuture)
+            scoreParticipant(challenge, code, checkIns, profiles, today, includeFuture, confirmations)
         }
         return rankScores(challenge, scores, today)
     }
@@ -88,13 +114,14 @@ object ChallengeEngine {
         allCheckIns: List<CheckIn>,
         profiles: List<Profile>,
         today: LocalDate = LocalDate.now(),
-        includeFuture: Boolean = true
+        includeFuture: Boolean = true,
+        confirmations: List<PeerConfirmation> = emptyList()
     ): ParticipantScore {
         val checkIns = allCheckIns.filter { it.challengeId == challenge.id && it.userCode == code }
         val periods = when (challenge.mode) {
-            ChallengeMode.DAILY -> dailyPeriods(challenge, checkIns, today, includeFuture)
-            ChallengeMode.INTERVAL -> intervalPeriods(challenge, checkIns, today, includeFuture)
-            ChallengeMode.TOTAL -> totalPeriods(challenge, checkIns, today, includeFuture)
+            ChallengeMode.DAILY -> dailyPeriods(challenge, checkIns, today, includeFuture, confirmations)
+            ChallengeMode.INTERVAL -> intervalPeriods(challenge, checkIns, today, includeFuture, confirmations)
+            ChallengeMode.TOTAL -> totalPeriods(challenge, checkIns, today, includeFuture, confirmations)
         }
         val started = periods.filter { it.startDate <= today }
         val points = when (challenge.mode) {
@@ -135,7 +162,8 @@ object ChallengeEngine {
         challenge: Challenge,
         checkIns: List<CheckIn>,
         today: LocalDate,
-        includeFuture: Boolean
+        includeFuture: Boolean,
+        confirmations: List<PeerConfirmation>
     ): List<PeriodScore> {
         val result = ArrayList<PeriodScore>()
         var date = challenge.start
@@ -149,7 +177,8 @@ object ChallengeEngine {
                     end = date,
                     label = Dates.day(date),
                     entries = checkIns.filter { parseDate(it.date) == date },
-                    today = today
+                    today = today,
+                    confirmations = confirmations
                 )
             }
             date = date.plusDays(1)
@@ -162,7 +191,8 @@ object ChallengeEngine {
         challenge: Challenge,
         checkIns: List<CheckIn>,
         today: LocalDate,
-        includeFuture: Boolean
+        includeFuture: Boolean,
+        confirmations: List<PeerConfirmation>
     ): List<PeriodScore> {
         val result = ArrayList<PeriodScore>()
         val step = challenge.intervalDays.coerceAtLeast(1)
@@ -181,7 +211,8 @@ object ChallengeEngine {
                         val d = parseDate(it.date)
                         !d.isBefore(slotStart) && !d.isAfter(slotEnd)
                     },
-                    today = today
+                    today = today,
+                    confirmations = confirmations
                 )
             }
             slotStart = slotEnd.plusDays(1)
@@ -197,14 +228,20 @@ object ChallengeEngine {
         end: LocalDate,
         label: String,
         entries: List<CheckIn>,
-        today: LocalDate
+        today: LocalDate,
+        confirmations: List<PeerConfirmation>
     ): PeriodScore {
         val goalScores = challenge.goals.map { goal ->
-            val goalEntries = entries.mapNotNull { it.resultFor(goal.id) }
-            val actual = goalEntries.sumOf { it.actual.coerceAtLeast(0.0) }
-            val attachments = goalEntries.flatMap { it.attachments }
+            val goalEntries = entries.mapNotNull { checkIn ->
+                checkIn.resultFor(goal.id)?.let { checkIn to it }
+            }
+            val actual = goalEntries.sumOf { it.second.actual.coerceAtLeast(0.0) }
+            val attachments = goalEntries.flatMap { it.second.attachments }
             val proofs = validProofs(attachments, goal.proofType)
-            val completed = actual >= goal.target && proofs.isNotEmpty()
+            val peer = goalEntries.flatMap { (checkIn, result) ->
+                activeConfirmations(challenge, checkIn, goal.id, result.actual, confirmations)
+            }.distinctBy { it.key }
+            val completed = actual >= goal.target && (proofs.isNotEmpty() || peer.isNotEmpty())
             GoalScore(
                 goal = goal,
                 actual = actual,
@@ -212,7 +249,8 @@ object ChallengeEngine {
                 hasProof = proofs.isNotEmpty(),
                 completed = completed,
                 points = if (completed) 1 else 0,
-                attachments = attachments
+                attachments = attachments,
+                peerConfirmations = peer
             )
         }
         val points = goalScores.sumOf { it.points }
@@ -244,7 +282,8 @@ object ChallengeEngine {
         challenge: Challenge,
         checkIns: List<CheckIn>,
         today: LocalDate,
-        includeFuture: Boolean
+        includeFuture: Boolean,
+        confirmations: List<PeerConfirmation>
     ): List<PeriodScore> {
         val result = ArrayList<PeriodScore>()
         val sorted = checkIns.sortedBy { it.date }
@@ -256,11 +295,16 @@ object ChallengeEngine {
                 val entriesUpToDate = sorted.filter { !parseDate(it.date).isAfter(date) }
                 var earnedToday = 0
                 val goalScores = challenge.goals.map { goal ->
-                    val goalEntries = entriesUpToDate.mapNotNull { it.resultFor(goal.id) }
-                    val actual = goalEntries.sumOf { it.actual.coerceAtLeast(0.0) }
-                    val attachments = goalEntries.flatMap { it.attachments }
+                    val goalEntries = entriesUpToDate.mapNotNull { checkIn ->
+                        checkIn.resultFor(goal.id)?.let { checkIn to it }
+                    }
+                    val actual = goalEntries.sumOf { it.second.actual.coerceAtLeast(0.0) }
+                    val attachments = goalEntries.flatMap { it.second.attachments }
                     val proofs = validProofs(attachments, goal.proofType)
-                    val completed = actual >= goal.target && proofs.isNotEmpty()
+                    val peer = goalEntries.flatMap { (checkIn, result) ->
+                        activeConfirmations(challenge, checkIn, goal.id, result.actual, confirmations)
+                    }.distinctBy { it.key }
+                    val completed = actual >= goal.target && (proofs.isNotEmpty() || peer.isNotEmpty())
                     val newCompletion = completed && everCompleted.add(goal.id)
                     if (newCompletion) earnedToday++
                     GoalScore(
@@ -270,7 +314,8 @@ object ChallengeEngine {
                         hasProof = proofs.isNotEmpty(),
                         completed = completed,
                         points = if (completed) 1 else 0,
-                        attachments = attachments
+                        attachments = attachments,
+                        peerConfirmations = peer
                     )
                 }
                 val completedCount = goalScores.count { it.completed }
@@ -333,9 +378,10 @@ object ChallengeEngine {
         code: String,
         checkIns: List<CheckIn>,
         profiles: List<Profile>,
-        today: LocalDate = LocalDate.now()
+        today: LocalDate = LocalDate.now(),
+        confirmations: List<PeerConfirmation> = emptyList()
     ): PeriodScore? {
-        val score = scoreParticipant(challenge, code, checkIns, profiles, today)
+        val score = scoreParticipant(challenge, code, checkIns, profiles, today, confirmations = confirmations)
         return when (challenge.mode) {
             ChallengeMode.TOTAL -> score.periods.lastOrNull { it.startDate <= today }
             else -> score.periods.firstOrNull { !today.isBefore(it.startDate) && !today.isAfter(it.endDate) }
@@ -348,18 +394,27 @@ object ChallengeEngine {
         code: String,
         checkIns: List<CheckIn>,
         profiles: List<Profile>,
-        today: LocalDate = LocalDate.now()
-    ): ParticipantScore = scoreParticipant(challenge, code, checkIns, profiles, today)
+        today: LocalDate = LocalDate.now(),
+        confirmations: List<PeerConfirmation> = emptyList()
+    ): ParticipantScore = scoreParticipant(challenge, code, checkIns, profiles, today, confirmations = confirmations)
 
     /** Добавляет медали всем участникам завершённого челленджа. Возвращает только изменённые профили. */
     fun awardMedals(
         challenge: Challenge,
         checkIns: List<CheckIn>,
         profiles: List<Profile>,
-        today: LocalDate = LocalDate.now()
+        today: LocalDate = LocalDate.now(),
+        confirmations: List<PeerConfirmation> = emptyList()
     ): List<Profile> {
         if (!today.isAfter(challenge.end)) return emptyList()
-        val ranked = scoreChallenge(challenge, checkIns, profiles, today, includeFuture = false)
+        val ranked = scoreChallenge(
+            challenge,
+            checkIns,
+            profiles,
+            today,
+            includeFuture = false,
+            confirmations = confirmations
+        )
         val changed = ArrayList<Profile>()
         for (score in ranked.filter { it.place in 1..3 }) {
             val profile = profiles.firstOrNull { it.code == score.code } ?: continue

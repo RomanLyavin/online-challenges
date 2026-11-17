@@ -112,7 +112,7 @@ fun AuthScreen(vm: AppViewModel) {
             Spacer(Modifier.height(10.dp))
             Text(
                 "Шаги, пробежки, сон, планка, отжимания и приседания. " +
-                    "Отмечай результат каждый день и прикладывай фото или видео.",
+                    "Отмечай результат каждый день, прикладывай фото/видео или подтверждай чужие цели.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -215,7 +215,7 @@ fun AuthScreen(vm: AppViewModel) {
             }
             Spacer(Modifier.height(18.dp))
             InfoBanner(
-                text = "Профиль хранится на устройстве, а общие челленджи и подтверждения синхронизируются с GitHub после ввода токена в настройках."
+                text = "Профиль хранится на устройстве, а общие челленджи, отметки и подтверждения синхронизируются с GitHub. Подключение уже настроено в приложении."
             )
             Spacer(Modifier.height(12.dp))
             Text(

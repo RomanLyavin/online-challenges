@@ -67,7 +67,14 @@ fun HomeScreen(vm: AppViewModel) {
     val finished = myChallenges.filter { it.status(today) == ChallengeStatus.FINISHED }
     val totalPoints = if (profile != null) {
         myChallenges.sumOf {
-            ChallengeEngine.scoreParticipant(it, profile.code, data.checkIns, data.profiles, today).points
+            ChallengeEngine.scoreParticipant(
+                it,
+                profile.code,
+                data.checkIns,
+                data.profiles,
+                today,
+                confirmations = data.confirmations
+            ).points
         }
     } else 0
     val medals = profile?.medals.orEmpty()
@@ -110,7 +117,7 @@ fun HomeScreen(vm: AppViewModel) {
                             shape = MaterialTheme.shapes.small,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Подключить GitHub для общих челленджей")
+                            Text("Синхронизация не настроена")
                         }
                     }
                 }
@@ -175,6 +182,7 @@ fun HomeScreen(vm: AppViewModel) {
                         currentUserCode = profile?.code,
                         allCheckIns = data.checkIns,
                         profiles = data.profiles,
+                        confirmations = data.confirmations,
                         onClick = { vm.openChallenge(challenge.id) }
                     )
                 }
@@ -196,6 +204,7 @@ fun HomeScreen(vm: AppViewModel) {
                         currentUserCode = profile?.code,
                         allCheckIns = data.checkIns,
                         profiles = data.profiles,
+                        confirmations = data.confirmations,
                         onClick = { vm.openChallenge(challenge.id) }
                     )
                 }
@@ -214,6 +223,7 @@ fun HomeScreen(vm: AppViewModel) {
                         currentUserCode = profile?.code,
                         allCheckIns = data.checkIns,
                         profiles = data.profiles,
+                        confirmations = data.confirmations,
                         onClick = { vm.openChallenge(challenge.id) }
                     )
                 }
@@ -237,7 +247,7 @@ fun HomeScreen(vm: AppViewModel) {
                     Text(
                         "1. Выберите челлендж и цели.\n" +
                             "2. Каждый день отмечайте результат.\n" +
-                            "3. Прикладывайте фото или видео.\n" +
+                            "3. Прикладывайте фото/видео или подтверждайте результаты других.\n" +
                             "4. Получайте 1 балл за каждую закрытую цель.\n" +
                             "5. В конце — места и медали.",
                         style = MaterialTheme.typography.bodySmall,

@@ -460,6 +460,54 @@ data class CheckIn(
     }
 }
 
+/**
+ * Подтверждение чужой отметки другим участником челленджа.
+ * Хранится отдельно от отметки, чтобы подтверждающий не перезаписывал чужие данные.
+ */
+data class PeerConfirmation(
+    val challengeId: String,
+    val checkInUserCode: String,
+    val date: String,
+    val goalId: String,
+    val confirmerCode: String,
+    val actual: Double,
+    val createdAt: String = isoNow(),
+    val updatedAt: String = isoNow(),
+    val revoked: Boolean = false,
+    val isDemo: Boolean = false
+) {
+    val key: String get() = "$challengeId|$checkInUserCode|$date|$goalId|$confirmerCode"
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("challengeId", challengeId)
+        .put("checkInUserCode", checkInUserCode)
+        .put("date", date)
+        .put("goalId", goalId)
+        .put("confirmerCode", confirmerCode)
+        .put("actual", actual)
+        .put("createdAt", createdAt)
+        .put("updatedAt", updatedAt)
+        .put("revoked", revoked)
+        .put("isDemo", isDemo)
+
+    fun toSyncJson(): JSONObject = toJson().apply { remove("isDemo") }
+
+    companion object {
+        fun fromJson(json: JSONObject): PeerConfirmation = PeerConfirmation(
+            challengeId = json.optString("challengeId", ""),
+            checkInUserCode = json.optString("checkInUserCode", ""),
+            date = json.optString("date", ""),
+            goalId = json.optString("goalId", ""),
+            confirmerCode = json.optString("confirmerCode", ""),
+            actual = json.optDouble("actual", 0.0),
+            createdAt = json.optString("createdAt", isoNow()),
+            updatedAt = json.optString("updatedAt", isoNow()),
+            revoked = json.optBoolean("revoked", false),
+            isDemo = json.optBoolean("isDemo", false)
+        )
+    }
+}
+
 /** Всё, что приложение хранит локально. */
 data class AppData(
     val accounts: List<UserAccount> = emptyList(),
@@ -468,7 +516,8 @@ data class AppData(
     val profiles: List<Profile> = emptyList(),
     val activities: List<ActivityType> = defaultActivities(),
     val challenges: List<Challenge> = emptyList(),
-    val checkIns: List<CheckIn> = emptyList()
+    val checkIns: List<CheckIn> = emptyList(),
+    val confirmations: List<PeerConfirmation> = emptyList()
 ) {
     fun profile(code: String?): Profile? = profiles.firstOrNull { it.code == code }
     fun account(email: String): UserAccount? = accounts.firstOrNull { it.email.equals(email, ignoreCase = true) }
@@ -479,6 +528,11 @@ data class AppData(
 
     fun checkIn(challengeId: String, code: String, date: String): CheckIn? =
         checkIns.firstOrNull { it.challengeId == challengeId && it.userCode == code && it.date == date }
+
+    fun confirmationsFor(challengeId: String, code: String, date: String): List<PeerConfirmation> =
+        confirmations.filter {
+            it.challengeId == challengeId && it.checkInUserCode == code && it.date == date
+        }
 
     fun withProfile(updated: Profile): AppData {
         val exists = profiles.any { it.code == updated.code }

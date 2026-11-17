@@ -25,7 +25,8 @@ class LocalStore(private val context: Context) {
                 profiles = json.optJSONArray("profiles").toList { Profile.fromJson(it) },
                 activities = mergeActivities(activities),
                 challenges = json.optJSONArray("challenges").toList { Challenge.fromJson(it) },
-                checkIns = json.optJSONArray("checkIns").toList { CheckIn.fromJson(it) }
+                checkIns = json.optJSONArray("checkIns").toList { CheckIn.fromJson(it) },
+                confirmations = json.optJSONArray("confirmations").toList { PeerConfirmation.fromJson(it) }
             )
         }.getOrElse { AppData() }
     }
@@ -49,6 +50,7 @@ class LocalStore(private val context: Context) {
             .put("activities", JSONArray(data.activities.map { it.toJson() }))
             .put("challenges", JSONArray(data.challenges.map { it.toJson() }))
             .put("checkIns", JSONArray(data.checkIns.map { it.toJson() }))
+            .put("confirmations", JSONArray(data.confirmations.map { it.toJson() }))
         runCatching {
             val tmp = File(context.filesDir, "online-challenges-data.tmp")
             tmp.writeText(json.toString(), Charsets.UTF_8)

@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -28,7 +27,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,8 +39,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onlinechallenges.app.BuildConfig
@@ -61,10 +57,6 @@ fun SettingsScreen(vm: AppViewModel) {
     val config by vm.config.collectAsStateWithLifecycle()
     val syncState by vm.syncState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var owner by remember(config.owner) { mutableStateOf(config.owner) }
-    var repo by remember(config.repo) { mutableStateOf(config.repo) }
-    var branch by remember(config.branch) { mutableStateOf(config.branch) }
-    var token by remember { mutableStateOf("") }
     var autoSync by remember(config.autoSync) { mutableStateOf(config.autoSync) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmClearDemo by remember { mutableStateOf(false) }
@@ -112,9 +104,8 @@ fun SettingsScreen(vm: AppViewModel) {
         Text("Синхронизация", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Общий каталог, челленджи, отметки и подтверждения хранятся в публичном GitHub-репозитории. " +
-                "Токен для записи уже встроен в приложение. При желании можно указать личный токен — " +
-                "он хранится на устройстве в зашифрованном виде.",
+            "Общий каталог, челленджи и отметки синхронизируются автоматически. " +
+                "Настройки подключения уже встроены в приложение и не требуют ввода.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -125,59 +116,6 @@ fun SettingsScreen(vm: AppViewModel) {
             shape = MaterialTheme.shapes.large
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                OutlinedTextField(
-                    value = owner,
-                    onValueChange = { owner = it; error = null },
-                    label = { Text("Владелец репозитория") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = repo,
-                    onValueChange = { repo = it; error = null },
-                    label = { Text("Репозиторий") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = branch,
-                    onValueChange = { branch = it },
-                    label = { Text("Ветка") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = token,
-                    onValueChange = { token = it; error = null },
-                    label = {
-                        Text(
-                            if (config.hasCustomToken) "Новый токен (необязательно)"
-                            else "Личный токен (необязательно)"
-                        )
-                    },
-                    placeholder = {
-                        Text(
-                            if (config.hasCustomToken) "Личный токен уже сохранён"
-                            else "Используется встроенный токен"
-                        )
-                    },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (!config.hasCustomToken && config.token.isNotBlank()) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "Сейчас используется встроенный токен.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Автосинхронизация", style = MaterialTheme.typography.titleSmall)
@@ -195,10 +133,7 @@ fun SettingsScreen(vm: AppViewModel) {
                     Spacer(Modifier.height(8.dp))
                 }
                 Button(
-                    onClick = {
-                        error = vm.saveGitHubConfig(owner, repo, branch, token, autoSync)
-                        if (error == null) token = ""
-                    },
+                    onClick = { error = vm.saveSyncSettings(autoSync) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
@@ -258,24 +193,7 @@ fun SettingsScreen(vm: AppViewModel) {
                     subtitle = config.pagesUrl,
                     onClick = { openUrl(context, config.pagesUrl) }
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                LinkRow(
-                    title = "Подтверждения",
-                    subtitle = "confirmations/${vm.userCode()}/",
-                    onClick = { openUrl(context, config.pagesUrl + "confirmations/") }
-                )
             }
-        }
-        Spacer(Modifier.height(14.dp))
-        InfoBanner(
-            text = "Встроенный токен уже настроен. Для личного токена: GitHub → Settings → Developer settings → " +
-                "Personal access tokens → Fine-grained tokens. Дайте доступ только к репозиторию " +
-                "${config.owner}/${config.repo} и право Contents: Read and write.",
-            warning = true
-        )
-        if (config.hasCustomToken) {
-            Spacer(Modifier.height(10.dp))
-            TextButton(onClick = { vm.clearGitHubToken() }) { Text("Удалить личный токен") }
         }
         Spacer(Modifier.height(18.dp))
         SectionTitle("Данные", subtitle = "Демо-примеры не синхронизируются")
@@ -288,7 +206,7 @@ fun SettingsScreen(vm: AppViewModel) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
                     "При первом запуске добавляются демонстрационные участники и челленджи с пометкой ДЕМО. " +
-                        "Они нужны, чтобы посмотреть статистику, медали и подтверждения без подключения GitHub.",
+                        "Они нужны, чтобы посмотреть статистику и медали без синхронизации.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
