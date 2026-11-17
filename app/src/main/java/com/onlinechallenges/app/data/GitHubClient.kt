@@ -16,6 +16,13 @@ class GitHubException(message: String) : Exception(message)
 
 private class MissingShaException(message: String) : Exception(message)
 
+internal fun isMissingShaError(code: Int, sha: String?, responseBody: String): Boolean {
+    if (code != 422 || !sha.isNullOrBlank()) return false
+    val detail = runCatching { JSONObject(responseBody).optString("message") }.getOrDefault("")
+    return detail.contains("sha", ignoreCase = true) &&
+        detail.contains("supplied", ignoreCase = true)
+}
+
 class GitHubClient(private val config: GitHubConfig) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -97,10 +104,7 @@ class GitHubClient(private val config: GitHubConfig) {
         client.newCall(request).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                if (response.code == 422 && sha.isNullOrBlank() &&
-                    responseBody.contains("\"sha\"") &&
-                    responseBody.contains("supplied", ignoreCase = true)
-                ) {
+                if (isMissingShaError(response.code, sha, responseBody)) {
                     throw MissingShaException(errorMessage(response.code, responseBody))
                 }
                 throw GitHubException(errorMessage(response.code, responseBody))
