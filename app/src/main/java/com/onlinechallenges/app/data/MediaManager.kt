@@ -4,27 +4,49 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.OpenableColumns
+import androidx.annotation.OptIn
 import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.Presentation
+import androidx.media3.transformer.AudioEncoderSettings
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.VideoEncoderSettings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.math.max
 
 class MediaException(message: String) : Exception(message)
 
+@OptIn(UnstableApi::class)
 class MediaManager(private val context: Context, private val repo: AppRepository) {
 
     companion object {
         const val MAX_VIDEO_BYTES = 25L * 1024 * 1024
+        const val MAX_VIDEO_INPUT_BYTES = 300L * 1024 * 1024
         const val MAX_IMAGE_INPUT_BYTES = 40L * 1024 * 1024
         private const val MAX_IMAGE_DIMENSION = 1800
         private const val MAX_AVATAR_DIMENSION = 512
         private const val VIDEO_LIMIT_TEXT = "25 МБ"
+        private const val VIDEO_HEIGHT = 720
+        private const val VIDEO_BITRATE = 1_500_000
+        private const val AUDIO_BITRATE = 96_000
     }
 
     fun newCaptureFile(video: Boolean): File {
@@ -59,39 +81,116 @@ class MediaManager(private val context: Context, private val repo: AppRepository
         }
     }
 
-    private fun importVideo(
+    private suspend fun importVideo(
         uri: Uri,
         userCode: String,
         challengeId: String,
         date: String,
         goalId: String
     ): Attachment {
-        val size = querySize(uri)
-        if (size > MAX_VIDEO_BYTES) {
-            throw MediaException("Видео больше $VIDEO_LIMIT_TEXT. Запишите короткий ролик или выберите файл меньше.")
+        val inputSize = querySize(uri)
+        if (inputSize > MAX_VIDEO_INPUT_BYTES) {
+            throw MediaException("Видео больше 300 МБ. Запишите короткий ролик или выберите файл меньше.")
         }
         val mime = context.contentResolver.getType(uri).orEmpty().ifBlank { "video/mp4" }
         val ext = extensionForMime(mime, video = true)
         val dir = goalDir(userCode, challengeId)
-        val fileName = "${date}_${sanitize(goalId)}_${System.currentTimeMillis()}.$ext"
-        val dest = File(dir, fileName)
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            dest.outputStream().use { output ->
-                val copied = copyLimited(input, output, MAX_VIDEO_BYTES)
-                if (copied > MAX_VIDEO_BYTES) {
-                    dest.delete()
-                    throw MediaException("Видео больше $VIDEO_LIMIT_TEXT. Запишите короткий ролик или выберите файл меньше.")
+        val stamp = System.currentTimeMillis()
+        val dest = File(dir, "${date}_${sanitize(goalId)}_${stamp}.mp4")
+        val temp = File(context.cacheDir, "video_${stamp}.$ext")
+        try {
+            withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    temp.outputStream().use { output ->
+                        copyLimited(input, output, MAX_VIDEO_INPUT_BYTES)
+                    }
+                } ?: throw MediaException("Не удалось открыть видео")
+            }
+            var finalFile = dest
+            var finalMime = "video/mp4"
+            val compression = runCatching { transcodeVideo(temp, dest) }
+            if (compression.isFailure) {
+                dest.delete()
+                if (temp.length() > MAX_VIDEO_BYTES) {
+                    throw MediaException("Не удалось сжать видео. Запишите ролик короче.")
+                }
+                // Если перекодирование не поддержано устройством, сохраняем исходник без сжатия.
+                finalFile = File(dir, "${date}_${sanitize(goalId)}_${stamp}.$ext")
+                withContext(Dispatchers.IO) {
+                    temp.copyTo(finalFile, overwrite = true)
+                }
+                finalMime = mime
+            }
+            if (!finalFile.exists() || finalFile.length() == 0L) {
+                finalFile.delete()
+                throw MediaException("Не удалось обработать видео")
+            }
+            if (finalFile.length() > MAX_VIDEO_BYTES) {
+                finalFile.delete()
+                throw MediaException(
+                    "Видео больше $VIDEO_LIMIT_TEXT даже после сжатия. Запишите ролик короче."
+                )
+            }
+            return Attachment(
+                id = UUID.randomUUID().toString(),
+                fileName = finalFile.name,
+                mime = finalMime,
+                type = AttachmentType.VIDEO,
+                sizeBytes = finalFile.length(),
+                localPath = finalFile.absolutePath
+            )
+        } finally {
+            temp.delete()
+        }
+    }
+
+    private suspend fun transcodeVideo(source: File, dest: File) {
+        dest.delete()
+        withContext(Dispatchers.Main.immediate) {
+            suspendCancellableCoroutine { continuation ->
+                val encoderFactory = DefaultEncoderFactory.Builder(context)
+                    .setRequestedVideoEncoderSettings(
+                        VideoEncoderSettings.Builder()
+                            .setBitrate(VIDEO_BITRATE)
+                            .build()
+                    )
+                    .setRequestedAudioEncoderSettings(
+                        AudioEncoderSettings.Builder()
+                            .setBitrate(AUDIO_BITRATE)
+                            .build()
+                    )
+                    .build()
+                val transformer = Transformer.Builder(context)
+                    .setVideoMimeType(MimeTypes.VIDEO_H264)
+                    .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                    .setEncoderFactory(encoderFactory)
+                    .setVideoEffects(listOf(Presentation.createForHeight(VIDEO_HEIGHT)))
+                    .addListener(object : Transformer.Listener {
+                        override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                            if (continuation.isActive) continuation.resume(Unit)
+                        }
+
+                        override fun onError(
+                            composition: Composition,
+                            exportResult: ExportResult,
+                            exportException: ExportException
+                        ) {
+                            if (continuation.isActive) {
+                                continuation.resumeWithException(exportException)
+                            }
+                        }
+                    })
+                    .build()
+                continuation.invokeOnCancellation {
+                    Handler(Looper.getMainLooper()).post { transformer.cancel() }
+                }
+                try {
+                    transformer.start(MediaItem.fromUri(Uri.fromFile(source)), dest.absolutePath)
+                } catch (error: Exception) {
+                    if (continuation.isActive) continuation.resumeWithException(error)
                 }
             }
-        } ?: throw MediaException("Не удалось открыть видео")
-        return Attachment(
-            id = UUID.randomUUID().toString(),
-            fileName = fileName,
-            mime = mime,
-            type = AttachmentType.VIDEO,
-            sizeBytes = dest.length(),
-            localPath = dest.absolutePath
-        )
+        }
     }
 
     private fun importImage(

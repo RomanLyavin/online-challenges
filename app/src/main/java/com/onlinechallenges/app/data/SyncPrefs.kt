@@ -3,6 +3,7 @@ package com.onlinechallenges.app.data
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import com.onlinechallenges.app.BuildConfig
 import java.security.KeyStore
 import java.util.Base64
 import javax.crypto.Cipher
@@ -15,7 +16,8 @@ data class GitHubConfig(
     val repo: String = DEFAULT_REPO,
     val branch: String = "main",
     val token: String = "",
-    val autoSync: Boolean = false
+    val autoSync: Boolean = false,
+    val hasCustomToken: Boolean = false
 ) {
     val isConfigured: Boolean get() = owner.isNotBlank() && repo.isNotBlank() && token.isNotBlank()
     val pagesUrl: String get() = "https://${owner.lowercase()}.github.io/$repo/"
@@ -30,13 +32,19 @@ data class GitHubConfig(
 class SyncPrefs(private val context: Context) {
     private val prefs = context.getSharedPreferences(DemoData.PREFS, Context.MODE_PRIVATE)
 
-    fun load(): GitHubConfig = GitHubConfig(
-        owner = prefs.getString(KEY_OWNER, GitHubConfig.DEFAULT_OWNER) ?: GitHubConfig.DEFAULT_OWNER,
-        repo = prefs.getString(KEY_REPO, GitHubConfig.DEFAULT_REPO) ?: GitHubConfig.DEFAULT_REPO,
-        branch = prefs.getString(KEY_BRANCH, "main") ?: "main",
-        token = TokenVault.decrypt(prefs.getString(KEY_TOKEN, null)),
-        autoSync = prefs.getBoolean(KEY_AUTO, false)
-    )
+    fun load(): GitHubConfig {
+        val customToken = TokenVault.decrypt(prefs.getString(KEY_TOKEN, null))
+        return GitHubConfig(
+            owner = prefs.getString(KEY_OWNER, GitHubConfig.DEFAULT_OWNER) ?: GitHubConfig.DEFAULT_OWNER,
+            repo = prefs.getString(KEY_REPO, GitHubConfig.DEFAULT_REPO) ?: GitHubConfig.DEFAULT_REPO,
+            branch = prefs.getString(KEY_BRANCH, "main") ?: "main",
+            token = customToken.ifBlank { BuildConfig.GITHUB_TOKEN },
+            autoSync = prefs.getBoolean(KEY_AUTO, false),
+            hasCustomToken = customToken.isNotBlank()
+        )
+    }
+
+    fun storedToken(): String = TokenVault.decrypt(prefs.getString(KEY_TOKEN, null))
 
     fun save(config: GitHubConfig) {
         prefs.edit()

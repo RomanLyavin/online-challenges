@@ -154,7 +154,7 @@ fun StatisticsScreen(
         }
         item {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                PodiumCard(scores = scores, finished = finished)
+                PodiumCard(scores = scores, finished = finished, avatarModel = { vm.avatarModel(it) })
             }
         }
         if (scores.isEmpty()) {

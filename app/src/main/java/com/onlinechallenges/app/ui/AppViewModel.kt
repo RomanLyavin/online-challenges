@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.onlinechallenges.app.BuildConfig
 import com.onlinechallenges.app.data.AppData
 import com.onlinechallenges.app.data.AppRepository
 import com.onlinechallenges.app.data.Attachment
@@ -30,6 +31,10 @@ import com.onlinechallenges.app.data.SyncPrefs
 import com.onlinechallenges.app.data.VerificationCodes
 import com.onlinechallenges.app.data.isoNow
 import com.onlinechallenges.app.data.parseDate
+import com.onlinechallenges.app.update.ApkVerifier
+import com.onlinechallenges.app.update.GitHubRelease
+import com.onlinechallenges.app.update.GitHubUpdate
+import com.onlinechallenges.app.update.UpdateState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -94,6 +99,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val mediaBusyGoal = MutableStateFlow<String?>(null)
     val avatarBusy = MutableStateFlow(false)
     val initialized = MutableStateFlow(false)
+    val updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -497,14 +503,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (owner.isBlank() || repo.isBlank()) return "Укажите владельца и репозиторий"
         if (!Regex("^[A-Za-z0-9_.-]+$").matches(owner)) return "Некорректный владелец репозитория"
         if (!Regex("^[A-Za-z0-9_.-]+$").matches(repo)) return "Некорректное имя репозитория"
-        val previous = syncPrefs.load()
-        val token = tokenInput.trim().ifBlank { previous.token }
+        val token = tokenInput.trim().ifBlank { syncPrefs.storedToken() }
         val updated = GitHubConfig(
             owner = owner.trim(),
             repo = repo.trim(),
             branch = branch.trim().ifBlank { "main" },
             token = token,
-            autoSync = autoSync
+            autoSync = autoSync,
+            hasCustomToken = token.isNotBlank()
         )
         syncPrefs.save(updated)
         config.value = syncPrefs.load()
@@ -514,8 +520,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearGitHubToken() {
         syncPrefs.clearToken()
-        config.value = syncPrefs.load()
-        uiMessage.value = "Токен удалён"
+        val reloaded = syncPrefs.load()
+        config.value = reloaded
+        uiMessage.value = if (reloaded.token.isNotBlank()) {
+            "Личный токен удалён, используется встроенный"
+        } else {
+            "Токен удалён"
+        }
     }
 
     fun testConnection() {
@@ -587,6 +598,108 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (syncPrefs.load().autoSync && syncPrefs.load().isConfigured) syncNow()
     }
 
+    // ---------- Обновления ----------
+
+    fun checkForUpdates() {
+        when (updateState.value) {
+            is UpdateState.Checking, is UpdateState.Downloading -> return
+            else -> Unit
+        }
+        val currentVersion = BuildConfig.VERSION_NAME
+        updateState.value = UpdateState.Checking
+        viewModelScope.launch {
+            try {
+                val release = withContext(Dispatchers.IO) {
+                    GitHubUpdate.fetchLatest(currentVersion)
+                }
+                updateState.value = when {
+                    !GitHubUpdate.isNewer(release.version, currentVersion) ->
+                        UpdateState.UpToDate(currentVersion)
+                    release.apkUrl.isNullOrBlank() -> UpdateState.Error(
+                        title = "Обновление недоступно",
+                        message = "В последнем релизе на GitHub не найден APK-файл.",
+                        retry = UpdateState.Retry.Check
+                    )
+                    else -> UpdateState.Available(release)
+                }
+            } catch (error: Exception) {
+                updateState.value = UpdateState.Error(
+                    title = "Не удалось проверить обновления",
+                    message = "Не удалось получить данные с GitHub. " +
+                        "Проверьте подключение к интернету и попробуйте ещё раз.",
+                    retry = UpdateState.Retry.Check
+                )
+            }
+        }
+    }
+
+    fun downloadUpdate(release: GitHubRelease) {
+        val url = release.apkUrl ?: return
+        if (updateState.value is UpdateState.Downloading) return
+        val currentVersion = BuildConfig.VERSION_NAME
+        val app = getApplication<Application>()
+        updateState.value = UpdateState.Downloading(release.version, 0)
+        viewModelScope.launch {
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    val directory = File(app.cacheDir, "updates").apply { mkdirs() }
+                    directory.listFiles()?.forEach { it.delete() }
+                    val target = File(directory, "OnlineChallenges-${release.version}.apk")
+                    GitHubUpdate.downloadApk(
+                        url = url,
+                        target = target,
+                        expectedSize = release.apkSize,
+                        currentVersion = currentVersion
+                    ) { percent ->
+                        updateState.value = UpdateState.Downloading(release.version, percent)
+                    }
+                    val archiveVersion = ApkVerifier.versionName(app, target)
+                    if (!ApkVerifier.isSameApp(app, target) ||
+                        archiveVersion != release.version
+                    ) {
+                        target.delete()
+                        throw InvalidUpdateApkException()
+                    }
+                    target
+                }
+                updateState.value = UpdateState.Ready(release, file)
+            } catch (error: InvalidUpdateApkException) {
+                updateState.value = UpdateState.Error(
+                    title = "Не удалось скачать обновление",
+                    message = "Скачанный файл не подходит: это не APK «Онлайн челленджей» " +
+                        "или его подпись не совпадает с установленной версией.",
+                    retry = UpdateState.Retry.Download(release)
+                )
+            } catch (error: Exception) {
+                updateState.value = UpdateState.Error(
+                    title = "Не удалось скачать обновление",
+                    message = "Не удалось скачать APK. Проверьте подключение к интернету " +
+                        "и попробуйте ещё раз.",
+                    retry = UpdateState.Retry.Download(release)
+                )
+            }
+        }
+    }
+
+    fun retryUpdate() {
+        when (val state = updateState.value) {
+            is UpdateState.Error -> when (val retry = state.retry) {
+                is UpdateState.Retry.Check -> checkForUpdates()
+                is UpdateState.Retry.Download -> downloadUpdate(retry.release)
+            }
+            else -> Unit
+        }
+    }
+
+    fun dismissUpdate() {
+        if (updateState.value is UpdateState.Downloading) return
+        updateState.value = UpdateState.Idle
+    }
+
+    fun consumeReadyUpdate() {
+        if (updateState.value is UpdateState.Ready) updateState.value = UpdateState.Idle
+    }
+
     // ---------- Демо и утилиты ----------
 
     fun clearDemoData() {
@@ -633,3 +746,5 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun userCode(): String = currentProfile()?.code ?: ""
 }
+
+private class InvalidUpdateApkException : Exception()

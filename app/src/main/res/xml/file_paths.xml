@@ -3,4 +3,5 @@
     <files-path name="media" path="media/" />
     <files-path name="avatars" path="avatars/" />
     <cache-path name="cache" path="." />
+    <cache-path name="updates" path="updates/" />
 </paths>

@@ -14,6 +14,8 @@ data class RemoteFile(val text: String, val sha: String)
 
 class GitHubException(message: String) : Exception(message)
 
+private class MissingShaException(message: String) : Exception(message)
+
 class GitHubClient(private val config: GitHubConfig) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -60,6 +62,24 @@ class GitHubClient(private val config: GitHubConfig) {
         message: String,
         sha: String? = null
     ): String = withContext(Dispatchers.IO) {
+        try {
+            putOnce(path, bytes, message, sha)
+        } catch (missingSha: MissingShaException) {
+            // Файл уже существует, но мы не знаем его версию. Запрашиваем sha и повторяем один раз.
+            val remoteSha = getFileSha(path)
+                ?: throw GitHubException(
+                    "GitHub: не удалось получить версию файла $path. Повторите синхронизацию."
+                )
+            putOnce(path, bytes, message, remoteSha)
+        }
+    }
+
+    private fun putOnce(
+        path: String,
+        bytes: ByteArray,
+        message: String,
+        sha: String?
+    ): String {
         val payload = JSONObject()
             .put("message", message)
             .put("content", Base64.getEncoder().encodeToString(bytes))
@@ -76,9 +96,29 @@ class GitHubClient(private val config: GitHubConfig) {
             .build()
         client.newCall(request).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw GitHubException(errorMessage(response.code, responseBody))
-            runCatching { JSONObject(responseBody).getJSONObject("content").optString("sha", "") }
+            if (!response.isSuccessful) {
+                if (response.code == 422 && sha.isNullOrBlank() &&
+                    responseBody.contains("\"sha\"") &&
+                    responseBody.contains("supplied", ignoreCase = true)
+                ) {
+                    throw MissingShaException(errorMessage(response.code, responseBody))
+                }
+                throw GitHubException(errorMessage(response.code, responseBody))
+            }
+            return runCatching { JSONObject(responseBody).getJSONObject("content").optString("sha", "") }
                 .getOrDefault("")
+        }
+    }
+
+    private suspend fun getFileSha(path: String): String? = withContext(Dispatchers.IO) {
+        val request = request("repos/${config.owner}/${config.repo}/contents/${encodePath(path)}?ref=${config.branch}")
+        client.newCall(request).execute().use { response ->
+            if (response.code == 404) return@withContext null
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw GitHubException(errorMessage(response.code, body))
+            val json = JSONObject(body)
+            if (json.optString("type") != "file") return@withContext null
+            json.optString("sha", "").ifBlank { null }
         }
     }
 

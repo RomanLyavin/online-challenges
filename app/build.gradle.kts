@@ -12,6 +12,15 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
+}
+val embeddedGitHubToken = localProperties.getProperty("github.token", "")
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+
 android {
     namespace = "com.onlinechallenges.app"
     compileSdk = 35
@@ -20,8 +29,9 @@ android {
         applicationId = "com.onlinechallenges.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
+        buildConfigField("String", "GITHUB_TOKEN", "\"$embeddedGitHubToken\"")
         resourceConfigurations += listOf("ru")
     }
 
@@ -94,6 +104,8 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("androidx.media3:media3-transformer:1.5.1")
+    implementation("androidx.media3:media3-effect:1.5.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

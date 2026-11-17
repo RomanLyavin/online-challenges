@@ -1,5 +1,11 @@
 package com.onlinechallenges.app.ui.screens
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +33,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +52,9 @@ import com.onlinechallenges.app.ui.LinkRow
 import com.onlinechallenges.app.ui.SectionTitle
 import com.onlinechallenges.app.ui.formatTimestamp
 import com.onlinechallenges.app.ui.openUrl
+import com.onlinechallenges.app.update.GitHubUpdate
+import com.onlinechallenges.app.update.UpdateState
+import java.io.File
 
 @Composable
 fun SettingsScreen(vm: AppViewModel) {
@@ -58,6 +68,39 @@ fun SettingsScreen(vm: AppViewModel) {
     var autoSync by remember(config.autoSync) { mutableStateOf(config.autoSync) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmClearDemo by remember { mutableStateOf(false) }
+    var showAbout by remember { mutableStateOf(false) }
+    var showSupport by remember { mutableStateOf(false) }
+    var showInstallPermission by remember { mutableStateOf(false) }
+    var pendingApk by remember { mutableStateOf<File?>(null) }
+    val updateState by vm.updateState.collectAsStateWithLifecycle()
+
+    val installPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val file = pendingApk
+        pendingApk = null
+        if (file != null && context.packageManager.canRequestPackageInstalls()) {
+            startApkInstall(context, file)
+        } else {
+            Toast.makeText(
+                context,
+                "Разрешение на установку не выдано.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    LaunchedEffect(updateState) {
+        val ready = updateState as? UpdateState.Ready ?: return@LaunchedEffect
+        pendingApk = ready.file
+        if (context.packageManager.canRequestPackageInstalls()) {
+            pendingApk = null
+            startApkInstall(context, ready.file)
+        } else {
+            showInstallPermission = true
+        }
+        vm.consumeReadyUpdate()
+    }
 
     Column(
         modifier = Modifier
@@ -70,7 +113,8 @@ fun SettingsScreen(vm: AppViewModel) {
         Spacer(Modifier.height(4.dp))
         Text(
             "Общий каталог, челленджи, отметки и подтверждения хранятся в публичном GitHub-репозитории. " +
-                "Токен нужен только для записи и хранится на устройстве в зашифрованном виде.",
+                "Токен для записи уже встроен в приложение. При желании можно указать личный токен — " +
+                "он хранится на устройстве в зашифрованном виде.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -108,13 +152,31 @@ fun SettingsScreen(vm: AppViewModel) {
                 OutlinedTextField(
                     value = token,
                     onValueChange = { token = it; error = null },
-                    label = { Text(if (config.token.isBlank()) "Personal access token" else "Новый токен (необязательно)") },
-                    placeholder = { Text(if (config.token.isBlank()) "github_pat_…" else "Токен уже сохранён") },
+                    label = {
+                        Text(
+                            if (config.hasCustomToken) "Новый токен (необязательно)"
+                            else "Личный токен (необязательно)"
+                        )
+                    },
+                    placeholder = {
+                        Text(
+                            if (config.hasCustomToken) "Личный токен уже сохранён"
+                            else "Используется встроенный токен"
+                        )
+                    },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (!config.hasCustomToken && config.token.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Сейчас используется встроенный токен.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -206,14 +268,14 @@ fun SettingsScreen(vm: AppViewModel) {
         }
         Spacer(Modifier.height(14.dp))
         InfoBanner(
-            text = "Как получить токен: GitHub → Settings → Developer settings → Personal access tokens → " +
-                "Fine-grained tokens. Дайте доступ только к репозиторию ${config.owner}/${config.repo} и право " +
-                "Contents: Read and write. Классический токен с областью repo тоже подойдёт.",
+            text = "Встроенный токен уже настроен. Для личного токена: GitHub → Settings → Developer settings → " +
+                "Personal access tokens → Fine-grained tokens. Дайте доступ только к репозиторию " +
+                "${config.owner}/${config.repo} и право Contents: Read and write.",
             warning = true
         )
-        if (config.token.isNotBlank()) {
+        if (config.hasCustomToken) {
             Spacer(Modifier.height(10.dp))
-            TextButton(onClick = { vm.clearGitHubToken() }) { Text("Удалить токен с устройства") }
+            TextButton(onClick = { vm.clearGitHubToken() }) { Text("Удалить личный токен") }
         }
         Spacer(Modifier.height(18.dp))
         SectionTitle("Данные", subtitle = "Демо-примеры не синхронизируются")
@@ -238,10 +300,21 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         }
         Spacer(Modifier.height(18.dp))
-        SectionTitle("О приложении")
+        SectionTitle("Приложение")
         Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { showAbout = true },
+                modifier = Modifier.weight(1f)
+            ) { Text("О программе") }
+            OutlinedButton(
+                onClick = { showSupport = true },
+                modifier = Modifier.weight(1f)
+            ) { Text("Поддержать") }
+        }
+        Spacer(Modifier.height(8.dp))
         Text(
-            "Онлайн челленджи · версия ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" +
+            "Версия ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" +
                 "Email-подтверждение работает в демо-режиме: код показывается на экране проверки. " +
                 "Почтовый сервер не подключён.",
             style = MaterialTheme.typography.bodySmall,
@@ -273,4 +346,56 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         )
     }
+
+    if (showAbout) {
+        AboutDialog(
+            onDismiss = { showAbout = false },
+            onUpdate = { showAbout = false; vm.checkForUpdates() },
+            onEmail = { openUrl(context, "mailto:lyrv@t-inform.ru") },
+            onGitHub = { openUrl(context, GitHubUpdate.REPO_URL) }
+        )
+    }
+
+    if (showSupport) {
+        SupportDialog(
+            onDismiss = { showSupport = false },
+            onSupport = { openUrl(context, SUPPORT_URL) }
+        )
+    }
+
+    UpdateStateDialogs(
+        state = updateState,
+        onDismiss = { vm.dismissUpdate() },
+        onDownload = { vm.downloadUpdate(it) },
+        onRetry = { vm.retryUpdate() }
+    )
+
+    if (showInstallPermission) {
+        InstallPermissionDialog(
+            onDismiss = {
+                showInstallPermission = false
+                pendingApk = null
+            },
+            onOpenSettings = {
+                showInstallPermission = false
+                try {
+                    installPermissionLauncher.launch(
+                        Intent(
+                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                    )
+                } catch (error: Exception) {
+                    pendingApk = null
+                    Toast.makeText(
+                        context,
+                        "Не удалось открыть настройки установки.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
+    }
 }
+
+private const val SUPPORT_URL = "https://t.tb.ru/pm_short/AOdA22MAdsS"

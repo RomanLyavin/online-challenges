@@ -698,6 +698,7 @@ fun CompactMedalRow(medals: List<Medal>) {
 fun PodiumCard(
     scores: List<com.onlinechallenges.app.data.ParticipantScore>,
     finished: Boolean,
+    avatarModel: (Profile?) -> Any? = { null },
     modifier: Modifier = Modifier
 ) {
     val top = scores.filter { it.place in 1..3 }.sortedBy { it.place }
@@ -741,7 +742,7 @@ fun PodiumCard(
                         }
                     }
                     Spacer(Modifier.width(10.dp))
-                    UserAvatar(profile = score.profile, model = null, size = 32.dp)
+                    UserAvatar(profile = score.profile, model = avatarModel(score.profile), size = 32.dp)
                     Spacer(Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(score.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)

@@ -209,7 +209,7 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                                     .weight(1f)
                                     .height(48.dp),
                                 shape = MaterialTheme.shapes.small
-                            ) { Text("Отметить сегодня") }
+                            ) { Text("Отметить") }
                             OutlinedButton(
                                 onClick = { vm.openStatistics(challenge.id) },
                                 modifier = Modifier
@@ -303,7 +303,11 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
         }
         item {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
-                PodiumCard(scores = scores, finished = status == ChallengeStatus.FINISHED)
+                PodiumCard(
+                    scores = scores,
+                    finished = status == ChallengeStatus.FINISHED,
+                    avatarModel = { vm.avatarModel(it) }
+                )
             }
         }
         item {
