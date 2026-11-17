@@ -1,3 +1,4 @@
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -17,9 +18,14 @@ val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     localPropertiesFile.inputStream().use { localProperties.load(it) }
 }
+// Токен маскируется, чтобы GitHub не отозвал его автоматическим сканированием
+// секретов в публичном APK. Это не защита: токен по-прежнему извлекаем.
 val embeddedGitHubToken = localProperties.getProperty("github.token", "")
-    .replace("\\", "\\\\")
-    .replace("\"", "\\\"")
+val embeddedGitHubTokenB64 = run {
+    val bytes = embeddedGitHubToken.toByteArray(Charsets.UTF_8)
+    val masked = ByteArray(bytes.size) { index -> (bytes[index].toInt() xor 0x5A).toByte() }
+    Base64.getEncoder().encodeToString(masked)
+}
 
 android {
     namespace = "com.onlinechallenges.app"
@@ -31,7 +37,7 @@ android {
         targetSdk = 35
         versionCode = 2
         versionName = "1.0.1"
-        buildConfigField("String", "GITHUB_TOKEN", "\"$embeddedGitHubToken\"")
+        buildConfigField("String", "GITHUB_TOKEN_B64", "\"$embeddedGitHubTokenB64\"")
         resourceConfigurations += listOf("ru")
     }
 

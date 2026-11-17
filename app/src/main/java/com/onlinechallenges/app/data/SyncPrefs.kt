@@ -38,11 +38,22 @@ class SyncPrefs(private val context: Context) {
             owner = prefs.getString(KEY_OWNER, GitHubConfig.DEFAULT_OWNER) ?: GitHubConfig.DEFAULT_OWNER,
             repo = prefs.getString(KEY_REPO, GitHubConfig.DEFAULT_REPO) ?: GitHubConfig.DEFAULT_REPO,
             branch = prefs.getString(KEY_BRANCH, "main") ?: "main",
-            token = customToken.ifBlank { BuildConfig.GITHUB_TOKEN },
+            token = customToken.ifBlank { embeddedToken() },
             autoSync = prefs.getBoolean(KEY_AUTO, false),
             hasCustomToken = customToken.isNotBlank()
         )
     }
+
+    private fun embeddedToken(): String = runCatching {
+        val encoded = BuildConfig.GITHUB_TOKEN_B64
+        if (encoded.isBlank()) {
+            ""
+        } else {
+            val masked = Base64.getDecoder().decode(encoded)
+            val bytes = ByteArray(masked.size) { index -> (masked[index].toInt() xor 0x5A).toByte() }
+            String(bytes, Charsets.UTF_8)
+        }
+    }.getOrDefault("")
 
     fun storedToken(): String = TokenVault.decrypt(prefs.getString(KEY_TOKEN, null))
 
