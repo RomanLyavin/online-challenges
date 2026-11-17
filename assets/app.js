@@ -195,13 +195,10 @@
   }
 
   function goalPill(goal) {
-    const proof = String(goal.proofType || "").toUpperCase();
-    const proofLabel = proof === "VIDEO" ? "видео" : proof === "ANY" ? "фото/видео" : "фото";
     return '<span class="goal-pill">' +
       '<span aria-hidden="true">' + escapeHtml(text(goal.emoji, "🎯")) + "</span>" +
       "<span><b>" + escapeHtml(text(goal.name, "Цель")) + "</b> " +
       escapeHtml(formatNumber(goal.target)) + " " + escapeHtml(text(goal.unit, "")) + "</span>" +
-      '<span class="proof">' + escapeHtml(proofLabel) + "</span>" +
       "</span>";
   }
 

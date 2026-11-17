@@ -509,7 +509,6 @@ html[data-theme="dark"] .chip.is-active { color: #062a28; }
   border: 1px solid var(--line);
 }
 .goal-pill b { font-weight: 800; }
-.goal-pill .proof { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
 
 .challenge-columns { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.6fr); gap: 16px; align-items: start; }
 .subpanel {
