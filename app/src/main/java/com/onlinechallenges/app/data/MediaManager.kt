@@ -22,6 +22,7 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -109,6 +110,11 @@ class MediaManager(private val context: Context, private val repo: AppRepository
             var finalFile = dest
             var finalMime = "video/mp4"
             val compression = runCatching { transcodeVideo(temp, dest) }
+            val compressionError = compression.exceptionOrNull()
+            if (compressionError is CancellationException) {
+                dest.delete()
+                throw compressionError
+            }
             if (compression.isFailure) {
                 dest.delete()
                 if (temp.length() > MAX_VIDEO_BYTES) {
