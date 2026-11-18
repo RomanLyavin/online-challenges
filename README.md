@@ -23,32 +23,34 @@ Android-приложение и публичный сайт для челлен�
   приседания, планка, пресс, чистка зубов, домашняя работа, танцы, футбол,
   лыжи, коньки. Участники могут добавлять свои активности и заменять иконку
   любой активности своим фото — оно синхронизируется в общий каталог.
-  <img width="1260" height="2800" alt="Screenshot_20261117_113351" src="https://github.com/user-attachments/assets/aa95ed0c-abf2-4d0c-832d-98378cfb2657" />
-  <img width="1260" height="2800" alt="Screenshot_20261117_113356" src="https://github.com/user-attachments/assets/4c63aede-b700-4572-9dfb-e626ed643c95" />  
+  
+  <img width="315" height="700" alt="Screenshot_20261118_110038" src="https://github.com/user-attachments/assets/3b80691c-fb87-4f31-a6a9-7ddcaf8b523f" />
+  <img width="310" height="700" alt="Screenshot_20261117_113356" src="https://github.com/user-attachments/assets/4c63aede-b700-4572-9dfb-e626ed643c95" />  
 - Челленджи с несколькими целями одновременно, режимами «каждый день»,
   «каждые N дней» и «всего за период».
-  <img width="1260" height="2800" alt="Screenshot_20261117_113749" src="https://github.com/user-attachments/assets/5c9270c4-26f1-461c-843f-461d044fc54b" />
+  
 - Общие и приватные челленджи. Приватный челлендж открывается по коду
   приглашения от автора; его цели, отметки, фото, видео и подтверждения
   шифруются.
+  <img width="315" height="700" alt="Screenshot_20261118_110122" src="https://github.com/user-attachments/assets/5001b8d1-17ad-46cf-a804-f33a634e0162" />
 - Ежедневные отметки: фактический результат, фото/видео или подтверждение
   другого участника. Видео автоматически сжимается до 720p, итоговый файл — до
   25 МБ.
-  <img width="1260" height="2800" alt="Screenshot_20261117_113421" src="https://github.com/user-attachments/assets/dca11a7f-4239-4ba8-889f-bc3852041ae7" />
+  <img width="315" height="700" alt="Screenshot_20261117_113421" src="https://github.com/user-attachments/assets/dca11a7f-4239-4ba8-889f-bc3852041ae7" />
 - Взаимные подтверждения: любой участник челленджа, кроме автора, может отметить
   галочкой выполненную цель. Пока подтверждения нет, результат ждёт проверки и
   баллов не даёт.
 - Статистика: личный дневник по периодам, рейтинг участников, места, медали
   за 1–3 места в завершённых челленджах. Аватары показываются в списках и на
   пьедестале.
-  <img width="1260" height="2800" alt="Screenshot_20261117_113306" src="https://github.com/user-attachments/assets/1105c5e3-d1d7-4021-9749-4f1908893432" />
+  <img width="315" height="700" alt="Screenshot_20261117_113306" src="https://github.com/user-attachments/assets/1105c5e3-d1d7-4021-9749-4f1908893432" />
 - Локальное хранение в JSON и синхронизация с публичным GitHub-репозиторием.
 - Публичный сайт: рейтинг, общие челленджи, подиумы и последние отметки. По
   приватным челленджам — только имена, очки и места; цели, результаты, медиа и
   подтверждения не публикуются, строки «Подтверждено: имя» на сайте нет.
 - Проверка обновлений и установка новой версии из приложения:
   **Настройки → О программе → Обновить**.
-  <img width="1260" height="1484" alt="Screenshot_20261117_113503" src="https://github.com/user-attachments/assets/219f5cca-a8ce-4115-a41a-9f17e8e7d6ff" />
+  <img width="400" height="500" alt="Screenshot_20261117_113503" src="https://github.com/user-attachments/assets/219f5cca-a8ce-4115-a41a-9f17e8e7d6ff" />
 
 - Демо-данные для знакомства с приложением. Они помечены и никогда не
   синхронизируются.
