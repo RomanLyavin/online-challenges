@@ -49,6 +49,7 @@ import com.onlinechallenges.app.data.GoalScore
 import com.onlinechallenges.app.data.ParticipantScore
 import com.onlinechallenges.app.data.PeriodScore
 import com.onlinechallenges.app.data.PeriodState
+import com.onlinechallenges.app.ui.ActivityIcon
 import com.onlinechallenges.app.ui.AppViewModel
 import com.onlinechallenges.app.ui.EmptyState
 import com.onlinechallenges.app.ui.GradientHeader
@@ -84,6 +85,20 @@ fun StatisticsScreen(
                 emoji = "🔎",
                 title = "Челлендж не найден",
                 text = "Возможно, он удалён или ещё не синхронизирован.",
+                actionText = "Назад",
+                onAction = { vm.back() }
+            )
+        }
+        return
+    }
+
+    val profile = data.currentProfile()
+    if (!challenge.hasAccess(profile?.code)) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            EmptyState(
+                emoji = "🔒",
+                title = "Приватный челлендж",
+                text = "Статистика доступна только участникам. Войдите по коду приглашения на странице челленджа.",
                 actionText = "Назад",
                 onAction = { vm.back() }
             )
@@ -242,7 +257,9 @@ fun StatisticsScreen(
                         onToggle = {
                             expandedIndex = if (expandedIndex == period.index) null else period.index
                         },
-                        onOpenAttachment = { attachment -> openAttachment(context, attachment, vm) }
+                        onOpenAttachment = { attachment ->
+                            openAttachment(context, attachment, challenge.id, vm)
+                        }
                     )
                 }
                 item {
@@ -487,7 +504,12 @@ private fun GoalDetailRow(
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Row(verticalAlignment = Alignment.Top) {
-        Text(goalScore.goal.emoji, style = MaterialTheme.typography.titleMedium)
+        ActivityIcon(
+            activityId = goalScore.goal.activityId,
+            emoji = goalScore.goal.emoji,
+            iconPath = goalScore.goal.iconPath,
+            size = 22.dp
+        )
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(goalScore.goal.name, style = MaterialTheme.typography.titleSmall)

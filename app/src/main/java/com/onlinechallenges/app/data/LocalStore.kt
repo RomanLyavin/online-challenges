@@ -34,10 +34,20 @@ class LocalStore(private val context: Context) {
     private fun mergeActivities(local: List<ActivityType>): List<ActivityType> {
         val defaults = defaultActivities()
         if (local.isEmpty()) return defaults
-        val byId = LinkedHashMap<String, ActivityType>()
-        defaults.forEach { byId[it.id] = it }
-        local.forEach { if (!byId.containsKey(it.id)) byId[it.id] = it else if (!it.isDefault) byId[it.id] = it }
-        return byId.values.toList()
+        val localById = local.associateBy { it.id }
+        val result = LinkedHashMap<String, ActivityType>()
+        defaults.forEach { base ->
+            val saved = localById[base.id]
+            result[base.id] = if (saved == null) base else base.copy(
+                iconPath = saved.iconPath,
+                iconLocalPath = saved.iconLocalPath,
+                updatedAt = saved.updatedAt
+            )
+        }
+        local.forEach { activity ->
+            if (!result.containsKey(activity.id)) result[activity.id] = activity
+        }
+        return result.values.toList()
     }
 
     fun save(data: AppData) {
@@ -95,6 +105,8 @@ class AppRepository(val context: Context) {
     fun mediaRoot(): File = File(context.filesDir, "media").apply { mkdirs() }
 
     fun avatarRoot(): File = File(context.filesDir, "avatars").apply { mkdirs() }
+
+    fun activityIconRoot(): File = File(context.filesDir, "activity-icons").apply { mkdirs() }
 
     fun fileFor(path: String?): File? {
         if (path.isNullOrBlank()) return null

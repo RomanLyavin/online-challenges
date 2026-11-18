@@ -44,11 +44,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,6 +62,7 @@ import com.onlinechallenges.app.data.Challenge
 import com.onlinechallenges.app.data.ChallengeEngine
 import com.onlinechallenges.app.data.ChallengeGoal
 import com.onlinechallenges.app.data.ChallengeStatus
+import com.onlinechallenges.app.data.ChallengeVisibility
 import com.onlinechallenges.app.data.CheckIn
 import com.onlinechallenges.app.data.Dates
 import com.onlinechallenges.app.data.Gender
@@ -169,6 +172,50 @@ fun ModeBadge(challenge: Challenge) {
     }
 }
 
+/** Позволяет показывать фото-иконки активностей в любом месте без передачи vm. */
+val LocalActivityIconResolver = staticCompositionLocalOf<(String, String?) -> Any?> {
+    { _, _ -> null }
+}
+
+@Composable
+fun ActivityIcon(
+    activityId: String,
+    emoji: String,
+    iconPath: String? = null,
+    size: Dp = 24.dp,
+    textStyle: TextStyle = MaterialTheme.typography.titleMedium
+) {
+    val model = LocalActivityIconResolver.current(activityId, iconPath)
+    if (model != null) {
+        AsyncImage(
+            model = model,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(6.dp))
+        )
+    } else {
+        Text(emoji, style = textStyle)
+    }
+}
+
+@Composable
+fun PrivateBadge() {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.14f),
+        shape = RoundedCornerShape(50)
+    ) {
+        Text(
+            "🔒 Приватный",
+            color = MaterialTheme.colorScheme.tertiary,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+        )
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GoalChip(goal: ChallengeGoal, compact: Boolean = false) {
@@ -176,14 +223,26 @@ fun GoalChip(goal: ChallengeGoal, compact: Boolean = false) {
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         shape = RoundedCornerShape(50)
     ) {
-        Text(
-            text = "${goal.emoji} ${formatTarget(goal)}",
-            style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ActivityIcon(
+                activityId = goal.activityId,
+                emoji = goal.emoji,
+                iconPath = goal.iconPath,
+                size = if (compact) 14.dp else 16.dp,
+                textStyle = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = formatTarget(goal),
+                style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -199,21 +258,57 @@ fun ChallengeCard(
 ) {
     val today = LocalDate.now()
     val status = challenge.status(today)
+    val hasAccess = challenge.hasAccess(currentUserCode)
     val joined = currentUserCode != null && challenge.participantCodes.contains(currentUserCode)
-    val myScore = if (joined && currentUserCode != null) {
+    if (!hasAccess) {
+        Card(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PrivateBadge()
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "Нужен код",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    challenge.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Данные доступны только участникам. Введите код приглашения от автора.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+    val myScore = if (joined) {
         ChallengeEngine.scoreParticipant(
             challenge,
-            currentUserCode,
+            currentUserCode!!,
             allCheckIns,
             profiles,
             today,
             confirmations = confirmations
         )
     } else null
-    val currentPeriod = if (joined && currentUserCode != null) {
+    val currentPeriod = if (joined) {
         ChallengeEngine.currentPeriod(
             challenge,
-            currentUserCode,
+            currentUserCode!!,
             allCheckIns,
             profiles,
             today,
@@ -232,6 +327,10 @@ fun ChallengeCard(
                 StatusBadge(status)
                 Spacer(Modifier.width(8.dp))
                 ModeBadge(challenge)
+                if (challenge.isPrivate) {
+                    Spacer(Modifier.width(8.dp))
+                    PrivateBadge()
+                }
                 if (challenge.isDemo) {
                     Spacer(Modifier.width(8.dp))
                     DemoBadge()

@@ -35,8 +35,8 @@ android {
         applicationId = "com.onlinechallenges.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.1.0"
         buildConfigField("String", "GITHUB_TOKEN_B64", "\"$embeddedGitHubTokenB64\"")
         resourceConfigurations += listOf("ru")
     }

@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -59,9 +60,13 @@ fun AppRoot(vm: AppViewModel) {
     val initialized by vm.initialized.collectAsStateWithLifecycle()
     val message by vm.uiMessage.collectAsStateWithLifecycle()
     val syncState by vm.syncState.collectAsStateWithLifecycle()
+    val appData by vm.data.collectAsStateWithLifecycle()
     val stack = vm.screenStack
     val current = stack.lastOrNull()
     val snackbarHostState = remember { SnackbarHostState() }
+    val iconResolver = remember(appData.activities) {
+        { activityId: String, iconPath: String? -> vm.activityIconModel(activityId, iconPath) }
+    }
 
     LaunchedEffect(message) {
         if (message != null) {
@@ -153,23 +158,25 @@ fun AppRoot(vm: AppViewModel) {
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            when (current) {
-                Screen.Auth -> AuthScreen(vm)
-                Screen.Verify -> VerifyScreen(vm)
-                Screen.SetupProfile -> SetupProfileScreen(vm)
-                Screen.Home -> HomeScreen(vm)
-                Screen.Catalog -> CatalogScreen(vm)
-                Screen.ProfileScreen -> ProfileScreen(vm)
-                Screen.Settings -> SettingsScreen(vm)
-                Screen.CreateChallenge -> CreateChallengeScreen(vm)
-                is Screen.ChallengeDetail -> ChallengeDetailScreen(vm, current.challengeId)
-                is Screen.CheckInScreen -> CheckInScreen(vm)
-                is Screen.Statistics -> StatisticsScreen(vm, current.challengeId, current.selectedCode)
+        CompositionLocalProvider(LocalActivityIconResolver provides iconResolver) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                when (current) {
+                    Screen.Auth -> AuthScreen(vm)
+                    Screen.Verify -> VerifyScreen(vm)
+                    Screen.SetupProfile -> SetupProfileScreen(vm)
+                    Screen.Home -> HomeScreen(vm)
+                    Screen.Catalog -> CatalogScreen(vm)
+                    Screen.ProfileScreen -> ProfileScreen(vm)
+                    Screen.Settings -> SettingsScreen(vm)
+                    Screen.CreateChallenge -> CreateChallengeScreen(vm)
+                    is Screen.ChallengeDetail -> ChallengeDetailScreen(vm, current.challengeId)
+                    is Screen.CheckInScreen -> CheckInScreen(vm)
+                    is Screen.Statistics -> StatisticsScreen(vm, current.challengeId, current.selectedCode)
+                }
             }
         }
     }

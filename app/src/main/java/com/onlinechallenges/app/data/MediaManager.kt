@@ -44,6 +44,7 @@ class MediaManager(private val context: Context, private val repo: AppRepository
         const val MAX_IMAGE_INPUT_BYTES = 40L * 1024 * 1024
         private const val MAX_IMAGE_DIMENSION = 1800
         private const val MAX_AVATAR_DIMENSION = 512
+        private const val MAX_ICON_DIMENSION = 320
         private const val VIDEO_LIMIT_TEXT = "25 МБ"
         private const val VIDEO_HEIGHT = 720
         private const val VIDEO_BITRATE = 1_500_000
@@ -258,6 +259,23 @@ class MediaManager(private val context: Context, private val repo: AppRepository
                 raw.outputStream().use { output -> copyLimited(input, output, MAX_IMAGE_INPUT_BYTES) }
             } ?: throw MediaException("Не удалось открыть фото профиля")
             if (!saveCompressedImage(raw, dest, MAX_AVATAR_DIMENSION)) {
+                throw MediaException("Не удалось обработать изображение")
+            }
+        } finally {
+            raw.delete()
+        }
+        dest.absolutePath
+    }
+
+    suspend fun importActivityIcon(uri: Uri, activityId: String): String = withContext(Dispatchers.IO) {
+        val dir = repo.activityIconRoot()
+        val dest = File(dir, "${sanitize(activityId)}_${System.currentTimeMillis()}.jpg")
+        val raw = File(context.cacheDir, "icon_${System.currentTimeMillis()}.tmp")
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                raw.outputStream().use { output -> copyLimited(input, output, MAX_IMAGE_INPUT_BYTES) }
+            } ?: throw MediaException("Не удалось открыть изображение")
+            if (!saveCompressedImage(raw, dest, MAX_ICON_DIMENSION)) {
                 throw MediaException("Не удалось обработать изображение")
             }
         } finally {

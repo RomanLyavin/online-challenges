@@ -118,6 +118,10 @@
     return STATUS[key] || { label: text(challenge && challenge.statusLabel, "Статус"), className: "FINISHED" };
   }
 
+  function isPrivateChallenge(challenge) {
+    return String(challenge && challenge.visibility || "").toUpperCase() === "PRIVATE";
+  }
+
   function emptyState(emoji, title, message, action) {
     return '<div class="empty">' +
       '<span class="empty-emoji" aria-hidden="true">' + escapeHtml(emoji) + "</span>" +
@@ -245,16 +249,9 @@
       const results = Array.isArray(entry.results) ? entry.results : [];
       const goals = results.map((result) => {
         const className = result.completed ? "ok" : "partial";
-        const line = '<div class="' + className + '">' + escapeHtml(text(result.emoji, "•")) + " " +
+        return '<div class="' + className + '">' + escapeHtml(text(result.emoji, "•")) + " " +
           escapeHtml(text(result.goal, "Цель")) + ": " + escapeHtml(formatNumber(result.actual)) + " / " +
           escapeHtml(formatNumber(result.target)) + " " + escapeHtml(text(result.unit, "")) + "</div>";
-        const confirmedBy = Array.isArray(result.confirmedBy)
-          ? result.confirmedBy.map((name) => text(name, "")).filter(Boolean)
-          : [];
-        const confirm = confirmedBy.length
-          ? '<div class="recent-confirm">✓ Подтверждено: ' + escapeHtml(confirmedBy.join(", ")) + "</div>"
-          : "";
-        return line + confirm;
       }).join("");
       return '<div class="recent-item">' +
         '<div class="recent-top"><span class="recent-name">' + escapeHtml(text(entry.name, "Участник")) + "</span>" +
@@ -264,7 +261,41 @@
     }).join("") + "</div>";
   }
 
+  function privateParticipantsHtml(challenge) {
+    const participants = Array.isArray(challenge.participants) ? challenge.participants : [];
+    if (!participants.length) {
+      return '<div class="empty">Пока нет участников.</div>';
+    }
+    const rows = participants.map((participant, index) => {
+      const place = num(participant.place, index + 1);
+      const medal = place <= 3 && participant.medal ? participant.medal : "";
+      return "<tr>" +
+        '<td class="place">' + (medal ? escapeHtml(medal) : "#" + place) + "</td>" +
+        '<td><div class="person">' + avatar(participant.name, "") +
+        '<div><div class="person-name">' + escapeHtml(text(participant.name, "Участник")) + "</div></div></div></td>" +
+        '<td class="num">' + num(participant.points) + " " +
+        plural(num(participant.points), "балл", "балла", "баллов") + "</td>" +
+        "</tr>";
+    }).join("");
+    return '<table class="participant-table"><tbody>' + rows + "</tbody></table>";
+  }
+
+  function privateChallengeCard(challenge) {
+    return '<article class="challenge-card private-challenge">' +
+      '<div class="challenge-head"><div>' +
+      '<h3 class="challenge-title">' + escapeHtml(text(challenge.title, "Приватный челлендж")) + "</h3>" +
+      '<div class="challenge-meta"><span class="tag tag-private">🔒 Приватный</span></div>' +
+      "</div></div>" +
+      '<div class="challenge-body"><div class="subpanel">' +
+      '<div class="subpanel-head"><span>Участники и очки</span><span>места и баллы</span></div>' +
+      privateParticipantsHtml(challenge) +
+      "</div></div>" +
+      '<p class="private-note">Цели, результаты, фото, видео и подтверждения доступны только участникам в приложении.</p>' +
+      "</article>";
+  }
+
   function challengeCard(challenge) {
+    if (isPrivateChallenge(challenge)) return privateChallengeCard(challenge);
     const status = statusOf(challenge);
     const goals = Array.isArray(challenge.goals) ? challenge.goals : [];
     const participantCount = num(challenge.participantCount);

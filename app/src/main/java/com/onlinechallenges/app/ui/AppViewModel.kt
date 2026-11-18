@@ -1,8 +1,12 @@
 package com.onlinechallenges.app.ui
 
 import android.app.Application
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.runtime.mutableStateListOf
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.onlinechallenges.app.BuildConfig
@@ -16,15 +20,20 @@ import com.onlinechallenges.app.data.Challenge
 import com.onlinechallenges.app.data.ChallengeEngine
 import com.onlinechallenges.app.data.ChallengeGoal
 import com.onlinechallenges.app.data.ChallengeMode
+import com.onlinechallenges.app.data.ChallengeVisibility
 import com.onlinechallenges.app.data.CheckIn
+import com.onlinechallenges.app.data.CryptoBox
 import com.onlinechallenges.app.data.Dates
 import com.onlinechallenges.app.data.DemoData
 import com.onlinechallenges.app.data.Gender
+import com.onlinechallenges.app.data.GitHubClient
 import com.onlinechallenges.app.data.GitHubConfig
 import com.onlinechallenges.app.data.GoalResult
+import com.onlinechallenges.app.data.InviteCodes
 import com.onlinechallenges.app.data.MediaException
 import com.onlinechallenges.app.data.MediaManager
 import com.onlinechallenges.app.data.PeerConfirmation
+import com.onlinechallenges.app.data.PrivateBundle
 import com.onlinechallenges.app.data.Profile
 import com.onlinechallenges.app.data.ProofType
 import com.onlinechallenges.app.data.SyncManager
@@ -99,6 +108,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val uiMessage = MutableStateFlow<String?>(null)
     val mediaBusyGoal = MutableStateFlow<String?>(null)
     val avatarBusy = MutableStateFlow(false)
+    val privateJoinBusy = MutableStateFlow(false)
+    val activityIconBusy = MutableStateFlow<String?>(null)
     val initialized = MutableStateFlow(false)
     val updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
 
@@ -273,6 +284,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return null
     }
 
+    fun setActivityIcon(activityId: String, uri: Uri) {
+        if (activityIconBusy.value != null) return
+        val activity = repository.snapshot().activities.firstOrNull { it.id == activityId } ?: return
+        viewModelScope.launch {
+            activityIconBusy.value = activityId
+            try {
+                val path = withContext(Dispatchers.IO) { media.importActivityIcon(uri, activity.id) }
+                repository.update { data ->
+                    data.copy(activities = data.activities.map {
+                        if (it.id == activityId) {
+                            it.copy(iconLocalPath = path, iconPath = null, updatedAt = isoNow())
+                        } else {
+                            it
+                        }
+                    })
+                }
+                uiMessage.value = "Иконка «${activity.name}» обновлена"
+                autoSyncIfEnabled()
+            } catch (error: MediaException) {
+                uiMessage.value = error.message
+            } catch (error: Exception) {
+                uiMessage.value = "Не удалось обновить иконку: ${error.message}"
+            } finally {
+                activityIconBusy.value = null
+            }
+        }
+    }
+
+    fun activityIconModel(activityId: String, fallbackPath: String? = null): Any? {
+        val activity = repository.snapshot().activities.firstOrNull { it.id == activityId }
+        val local = repository.fileFor(activity?.iconLocalPath)
+        if (local != null) return local
+        val path = activity?.iconPath ?: fallbackPath
+        if (path.isNullOrBlank()) return null
+        return config.value.pagesUrl + path
+    }
+
     // ---------- Челленджи ----------
 
     fun createChallenge(
@@ -282,7 +330,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         endDate: String,
         mode: ChallengeMode,
         intervalDays: Int,
-        goals: List<ChallengeGoal>
+        goals: List<ChallengeGoal>,
+        visibility: ChallengeVisibility = ChallengeVisibility.PUBLIC
     ): String? {
         val profile = currentProfile() ?: return "Сначала войдите"
         if (title.isBlank()) return "Введите название челленджа"
@@ -305,11 +354,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             creatorName = profile.name,
             participantCodes = listOf(profile.code),
             createdAt = isoNow(),
-            updatedAt = isoNow()
+            updatedAt = isoNow(),
+            visibility = visibility,
+            privateKey = if (visibility == ChallengeVisibility.PRIVATE) CryptoBox.newKey() else null
         )
         repository.update { it.withChallenge(challenge) }
         screenStack += Screen.ChallengeDetail(challenge.id)
-        uiMessage.value = "Челлендж создан"
+        uiMessage.value = if (visibility == ChallengeVisibility.PRIVATE) {
+            "Приватный челлендж создан. Код приглашения — на странице челленджа"
+        } else {
+            "Челлендж создан"
+        }
         autoSyncIfEnabled()
         return null
     }
@@ -317,6 +372,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun joinChallenge(id: String): String? {
         val profile = currentProfile() ?: return "Сначала войдите"
         val challenge = repository.snapshot().challenge(id) ?: return "Челлендж не найден"
+        if (challenge.isPrivate) return "Это приватный челлендж — введите код приглашения"
         if (challenge.participantCodes.contains(profile.code)) return "Вы уже участвуете"
         if (challenge.status() == com.onlinechallenges.app.data.ChallengeStatus.FINISHED) {
             return "Челлендж уже завершён"
@@ -325,6 +381,91 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         uiMessage.value = "Вы присоединились к челленджу"
         autoSyncIfEnabled()
         return null
+    }
+
+    fun joinPrivateChallenge(rawCode: String) {
+        if (privateJoinBusy.value) return
+        val profile = currentProfile() ?: run {
+            uiMessage.value = "Сначала войдите"
+            return
+        }
+        val parsed = InviteCodes.parse(rawCode) ?: run {
+            uiMessage.value = "Неверный код приглашения"
+            return
+        }
+        val config = syncPrefs.load()
+        if (!config.isConfigured) {
+            uiMessage.value = "Синхронизация не настроена"
+            return
+        }
+        privateJoinBusy.value = true
+        viewModelScope.launch {
+            try {
+                val joined = withContext(Dispatchers.IO) {
+                    val client = GitHubClient(config)
+                    val path = SyncManager.privateBundlePath(parsed.challengeId)
+                    val remote = client.getFileBytes(path)
+                        ?: throw IllegalStateException("Челлендж не найден в репозитории")
+                    val text = CryptoBox.decryptText(remote.bytes, parsed.key)
+                        ?: throw IllegalStateException("Код не подходит к этому челленджу")
+                    val bundle = PrivateBundle.fromJson(text)
+                        ?: throw IllegalStateException("Не удалось прочитать данные челленджа")
+                    if (bundle.challenge.id != parsed.challengeId) {
+                        throw IllegalStateException("Код относится к другому челленджу")
+                    }
+                    if (!bundle.challenge.isPrivate) {
+                        throw IllegalStateException("Это не приватный челлендж")
+                    }
+                    val existing = repository.snapshot().challenge(parsed.challengeId)
+                    // В локальном состоянии может быть только публичная заглушка
+                    // без целей. Полные данные всегда берём из расшифрованного бандла.
+                    val base = if (existing != null && existing.goals.isNotEmpty()) {
+                        existing
+                    } else {
+                        bundle.challenge
+                    }
+                    val challenge = base.copy(
+                        visibility = ChallengeVisibility.PRIVATE,
+                        privateKey = parsed.key,
+                        participantCodes = (
+                            base.participantCodes + bundle.challenge.participantCodes +
+                                (existing?.participantCodes ?: emptyList())
+                            ).distinct(),
+                        isDemo = false
+                    ).withParticipant(profile.code)
+                    val mergedCheckIns = mergePrivateCheckIns(
+                        repository.snapshot().checkIns.filter { it.challengeId == challenge.id },
+                        bundle.checkIns
+                    )
+                    val mergedConfirmations = mergePrivateConfirmations(
+                        repository.snapshot().confirmations.filter { it.challengeId == challenge.id },
+                        bundle.confirmations
+                    )
+                    val updatedBundle = PrivateBundle(challenge, mergedCheckIns, mergedConfirmations)
+                    client.putFile(
+                        path,
+                        CryptoBox.encryptText(updatedBundle.toJson().toString(), parsed.key),
+                        "Join private challenge",
+                        remote.sha
+                    )
+                    updatedBundle
+                }
+                repository.update { current ->
+                    current
+                        .withChallenge(joined.challenge)
+                        .copy(
+                            checkIns = current.checkIns.filterNot { it.challengeId == joined.challenge.id } + joined.checkIns,
+                            confirmations = current.confirmations.filterNot { it.challengeId == joined.challenge.id } + joined.confirmations
+                        )
+                }
+                uiMessage.value = "Вы присоединились к приватному челленджу"
+                syncNow()
+            } catch (error: Exception) {
+                uiMessage.value = error.message ?: "Не удалось присоединиться"
+            } finally {
+                privateJoinBusy.value = false
+            }
+        }
     }
 
     // ---------- Отметки ----------
@@ -758,7 +899,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val local = repository.fileFor(attachment.localPath)
         if (local != null) return local
         val remote = attachment.remotePath
-        if (!remote.isNullOrBlank()) return config.value.pagesUrl + remote
+        if (!remote.isNullOrBlank() && !isPrivateMediaPath(remote)) {
+            return config.value.pagesUrl + remote
+        }
         return null
     }
 
@@ -766,7 +909,111 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun remotePageUrl(attachment: Attachment): String? {
         val remote = attachment.remotePath ?: return null
+        if (isPrivateMediaPath(remote)) return null
         return config.value.pagesUrl + remote
+    }
+
+    private fun isPrivateMediaPath(path: String): Boolean =
+        path.startsWith("data/private/", ignoreCase = true)
+
+    /**
+     * Локальные файлы открываются сразу, публичные — через GitHub Pages,
+     * приватные скачиваются и расшифровываются во временную папку.
+     */
+    fun openAttachment(context: Context, attachment: Attachment, challengeId: String) {
+        val local = repository.fileFor(attachment.localPath)
+        if (local != null) {
+            openLocalFile(context, local, attachment.mime)
+            return
+        }
+        val remote = attachment.remotePath
+        if (remote.isNullOrBlank()) {
+            Toast.makeText(context, "Файл ещё не загружен", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val challenge = repository.snapshot().challenge(challengeId)
+        if (challenge?.isPrivate != true || !isPrivateMediaPath(remote)) {
+            openUrl(context, config.value.pagesUrl + remote, attachment.mime)
+            return
+        }
+        val key = challenge.privateKey
+        if (key.isNullOrBlank()) {
+            Toast.makeText(context, "Нет ключа для расшифровки файла", Toast.LENGTH_SHORT).show()
+            return
+        }
+        viewModelScope.launch {
+            Toast.makeText(context, "Скачиваем файл…", Toast.LENGTH_SHORT).show()
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    val client = GitHubClient(syncPrefs.load())
+                    val remoteFile = client.getFileBytes(remote)
+                        ?: throw IllegalStateException("Файл не найден в репозитории")
+                    val bytes = CryptoBox.decryptBytes(remoteFile.bytes, key)
+                        ?: throw IllegalStateException("Не удалось расшифровать файл")
+                    val dir = File(getApplication<Application>().cacheDir, "private-media").apply { mkdirs() }
+                    val safeName = attachment.fileName.ifBlank { attachment.id }
+                        .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    val target = File(dir, "${attachment.id.take(12)}_$safeName")
+                    target.writeBytes(bytes)
+                    target
+                }
+                openLocalFile(context, file, attachment.mime)
+            } catch (error: Exception) {
+                Toast.makeText(
+                    context,
+                    error.message ?: "Не удалось открыть файл",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    private fun openLocalFile(context: Context, file: File, mime: String) {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        openUrl(context, uri.toString(), mime, grantRead = true)
+    }
+
+    private fun openUrl(context: Context, url: String, mime: String, grantRead: Boolean = false) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(url), mime)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (grantRead) addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { context.startActivity(intent) }.onFailure {
+            Toast.makeText(context, "Нет приложения для этого файла", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun mergePrivateCheckIns(local: List<CheckIn>, remote: List<CheckIn>): List<CheckIn> {
+        val map = LinkedHashMap<String, CheckIn>()
+        local.forEach { map["${it.challengeId}|${it.userCode}|${it.date}"] = it }
+        remote.forEach { candidate ->
+            val key = "${candidate.challengeId}|${candidate.userCode}|${candidate.date}"
+            val current = map[key]
+            map[key] = if (current == null || candidate.updatedAt > current.updatedAt) {
+                candidate.copy(isDemo = false)
+            } else {
+                current
+            }
+        }
+        return map.values.toList()
+    }
+
+    private fun mergePrivateConfirmations(
+        local: List<PeerConfirmation>,
+        remote: List<PeerConfirmation>
+    ): List<PeerConfirmation> {
+        val map = LinkedHashMap<String, PeerConfirmation>()
+        local.forEach { map[it.key] = it }
+        remote.forEach { candidate ->
+            val current = map[candidate.key]
+            map[candidate.key] = if (current == null || candidate.updatedAt > current.updatedAt) {
+                candidate.copy(isDemo = false)
+            } else {
+                current
+            }
+        }
+        return map.values.toList()
     }
 
     fun avatarModel(profile: Profile?): Any? {

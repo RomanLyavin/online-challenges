@@ -1,5 +1,8 @@
 package com.onlinechallenges.app.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,6 +27,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onlinechallenges.app.data.ActivityType
 import com.onlinechallenges.app.data.ProofType
+import com.onlinechallenges.app.ui.ActivityIcon
 import com.onlinechallenges.app.ui.AppViewModel
 import com.onlinechallenges.app.ui.InfoBanner
 import com.onlinechallenges.app.ui.SectionTitle
@@ -53,17 +58,24 @@ import com.onlinechallenges.app.ui.formatNumber
 @Composable
 fun CatalogScreen(vm: AppViewModel) {
     val data by vm.data.collectAsStateWithLifecycle()
+    val iconBusy by vm.activityIconBusy.collectAsStateWithLifecycle()
     var showAdd by remember { mutableStateOf(false) }
+    var pendingIconActivity by remember { mutableStateOf<String?>(null) }
     val activities = data.activities.sortedWith(
         compareByDescending<ActivityType> { it.isDefault }.thenBy { it.name }
     )
+    val iconPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val activityId = pendingIconActivity
+        if (uri != null && activityId != null) vm.setActivityIcon(activityId, uri)
+        pendingIconActivity = null
+    }
 
     LazyColumn(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 32.dp)
     ) {
         item {
             InfoBanner(
-                text = "Каталог общий. Добавьте свою активность — после синхронизации она появится у всех участников и её можно будет выбрать при создании челленджа."
+                text = "Каталог общий. Добавьте свою активность — после синхронизации она появится у всех участников. Иконку любой активности можно заменить своим фото: оно сохранится в общем каталоге и будет видно всем после синхронизации."
             )
             Spacer(Modifier.height(14.dp))
             OutlinedButton(
@@ -82,7 +94,14 @@ fun CatalogScreen(vm: AppViewModel) {
             Spacer(Modifier.height(6.dp))
         }
         items(activities, key = { it.id }) { activity ->
-            ActivityRow(activity)
+            ActivityRow(
+                activity = activity,
+                iconBusy = iconBusy == activity.id,
+                onPickIcon = {
+                    pendingIconActivity = activity.id
+                    iconPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
+            )
         }
         item {
             Spacer(Modifier.height(12.dp))
@@ -107,7 +126,11 @@ fun CatalogScreen(vm: AppViewModel) {
 }
 
 @Composable
-private fun ActivityRow(activity: ActivityType) {
+private fun ActivityRow(
+    activity: ActivityType,
+    iconBusy: Boolean,
+    onPickIcon: () -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -128,7 +151,13 @@ private fun ActivityRow(activity: ActivityType) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Text(activity.emoji, style = MaterialTheme.typography.titleLarge)
+                    ActivityIcon(
+                        activityId = activity.id,
+                        emoji = activity.emoji,
+                        iconPath = activity.iconPath,
+                        size = 34.dp,
+                        textStyle = MaterialTheme.typography.titleLarge
+                    )
                 }
             }
             Spacer(Modifier.width(12.dp))
@@ -155,7 +184,20 @@ private fun ActivityRow(activity: ActivityType) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Text(activity.proofType.shortLabel, style = MaterialTheme.typography.titleMedium)
+            Column(horizontalAlignment = Alignment.End) {
+                Text(activity.proofType.shortLabel, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                if (iconBusy) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    TextButton(
+                        onClick = onPickIcon,
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                    ) {
+                        Text("📷 Фото", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
         }
     }
 }

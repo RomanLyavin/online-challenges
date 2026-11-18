@@ -38,9 +38,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onlinechallenges.app.data.ActivityType
 import com.onlinechallenges.app.data.ChallengeGoal
 import com.onlinechallenges.app.data.ChallengeMode
+import com.onlinechallenges.app.data.ChallengeVisibility
+import com.onlinechallenges.app.ui.ActivityIcon
 import com.onlinechallenges.app.ui.AppViewModel
 import com.onlinechallenges.app.ui.DateField
 import com.onlinechallenges.app.ui.InfoBanner
+import com.onlinechallenges.app.ui.PrivateBadge
 import com.onlinechallenges.app.ui.SectionTitle
 import com.onlinechallenges.app.ui.formatNumber
 import com.onlinechallenges.app.ui.formatTarget
@@ -54,6 +57,7 @@ fun CreateChallengeScreen(vm: AppViewModel) {
     var startDate by remember { mutableStateOf(LocalDate.now()) }
     var endDate by remember { mutableStateOf(LocalDate.now().plusDays(30)) }
     var mode by remember { mutableStateOf(ChallengeMode.DAILY) }
+    var visibility by remember { mutableStateOf(ChallengeVisibility.PUBLIC) }
     var intervalDays by remember { mutableStateOf("3") }
     val selected = remember { mutableStateMapOf<String, String>() }
     var error by remember { mutableStateOf<String?>(null) }
@@ -65,7 +69,7 @@ fun CreateChallengeScreen(vm: AppViewModel) {
             Text("Новый челлендж", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Задайте период, режим и цели. Участвовать смогут все, кто синхронизируется с вашим GitHub-репозиторием.",
+                "Задайте период, режим и цели. Общий челлендж видят все, приватный — только участники по коду приглашения.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -86,6 +90,35 @@ fun CreateChallengeScreen(vm: AppViewModel) {
                 minLines = 2,
                 maxLines = 4,
                 modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(18.dp))
+            SectionTitle("Доступ", subtitle = "Кто сможет видеть данные челленджа")
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ChallengeVisibility.entries.forEach { option ->
+                    FilterChip(
+                        selected = visibility == option,
+                        onClick = { visibility = option; error = null },
+                        label = {
+                            Text(
+                                option.label,
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    )
+                }
+                if (visibility == ChallengeVisibility.PRIVATE) {
+                    Spacer(Modifier.width(2.dp))
+                    PrivateBadge()
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            InfoBanner(
+                text = if (visibility == ChallengeVisibility.PRIVATE) {
+                    "Приватный челлендж: посты, фото, видео и подтверждения шифруются. Посторонние увидят только название и метку «Приватный», на сайте — только очки и места. Код приглашения появится на странице челленджа, передайте его участникам."
+                } else {
+                    "Общий челлендж: цели, результаты и фото видны всем участникам и на публичном сайте."
+                }
             )
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -218,7 +251,8 @@ fun CreateChallengeScreen(vm: AppViewModel) {
                             unit = activity.unit,
                             emoji = activity.emoji,
                             target = target,
-                            proofType = activity.proofType
+                            proofType = activity.proofType,
+                            iconPath = activity.iconPath
                         )
                     }
                     val interval = intervalDays.toIntOrNull() ?: 0
@@ -233,7 +267,8 @@ fun CreateChallengeScreen(vm: AppViewModel) {
                         endDate = endDate.toString(),
                         mode = mode,
                         intervalDays = interval,
-                        goals = goals
+                        goals = goals,
+                        visibility = visibility
                     )
                     error = message
                 },
@@ -272,7 +307,12 @@ private fun GoalSelectorCard(
         Column(modifier = Modifier.padding(end = 14.dp, top = 10.dp, bottom = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = selected, onCheckedChange = { onToggle() })
-                Text(activity.emoji, style = MaterialTheme.typography.titleMedium)
+                ActivityIcon(
+                    activityId = activity.id,
+                    emoji = activity.emoji,
+                    iconPath = activity.iconPath,
+                    size = 26.dp
+                )
                 Spacer(Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(activity.name, style = MaterialTheme.typography.titleSmall)

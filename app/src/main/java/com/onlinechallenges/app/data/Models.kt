@@ -39,6 +39,16 @@ enum class ChallengeMode(val label: String) {
     }
 }
 
+enum class ChallengeVisibility(val label: String) {
+    PUBLIC("Общий"),
+    PRIVATE("Приватный");
+
+    companion object {
+        fun parse(value: String?): ChallengeVisibility =
+            entries.firstOrNull { it.name == value } ?: PUBLIC
+    }
+}
+
 enum class AttachmentType { PHOTO, VIDEO }
 
 enum class ChallengeStatus(val label: String) {
@@ -213,7 +223,11 @@ data class ActivityType(
     val proofType: ProofType,
     val createdByCode: String? = null,
     val updatedAt: String = "2026-01-01T00:00:00Z",
-    val isDefault: Boolean = false
+    val isDefault: Boolean = false,
+    /** Путь к фотографии-иконке в публичном репозитории. */
+    val iconPath: String? = null,
+    /** Путь к локальному файлу-иконке; на другие устройства не передаётся. */
+    val iconLocalPath: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -225,6 +239,20 @@ data class ActivityType(
         .put("createdByCode", createdByCode ?: JSONObject.NULL)
         .put("updatedAt", updatedAt)
         .put("isDefault", isDefault)
+        .put("iconPath", iconPath ?: JSONObject.NULL)
+        .put("iconLocalPath", iconLocalPath ?: JSONObject.NULL)
+
+    fun toSyncJson(): JSONObject = JSONObject()
+        .put("id", id)
+        .put("name", name)
+        .put("unit", unit)
+        .put("emoji", emoji)
+        .put("defaultTarget", defaultTarget)
+        .put("proofType", proofType.name)
+        .put("createdByCode", createdByCode ?: JSONObject.NULL)
+        .put("updatedAt", updatedAt)
+        .put("isDefault", isDefault)
+        .put("iconPath", iconPath ?: JSONObject.NULL)
 
     companion object {
         fun fromJson(json: JSONObject): ActivityType = ActivityType(
@@ -236,7 +264,9 @@ data class ActivityType(
             proofType = ProofType.parse(json.optString("proofType", null)),
             createdByCode = json.optStringOrNull("createdByCode"),
             updatedAt = json.optString("updatedAt", "2026-01-01T00:00:00Z"),
-            isDefault = json.optBoolean("isDefault", false)
+            isDefault = json.optBoolean("isDefault", false),
+            iconPath = json.optStringOrNull("iconPath"),
+            iconLocalPath = json.optStringOrNull("iconLocalPath")
         )
     }
 }
@@ -248,7 +278,8 @@ data class ChallengeGoal(
     val unit: String,
     val emoji: String,
     val target: Double,
-    val proofType: ProofType
+    val proofType: ProofType,
+    val iconPath: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -258,6 +289,7 @@ data class ChallengeGoal(
         .put("emoji", emoji)
         .put("target", target)
         .put("proofType", proofType.name)
+        .put("iconPath", iconPath ?: JSONObject.NULL)
 
     companion object {
         fun fromJson(json: JSONObject): ChallengeGoal = ChallengeGoal(
@@ -267,7 +299,8 @@ data class ChallengeGoal(
             unit = json.optString("unit", ""),
             emoji = json.optString("emoji", "🎯"),
             target = json.optDouble("target", 1.0).coerceAtLeast(0.0001),
-            proofType = ProofType.parse(json.optString("proofType", null))
+            proofType = ProofType.parse(json.optString("proofType", null)),
+            iconPath = json.optStringOrNull("iconPath")
         )
     }
 }
@@ -286,10 +319,17 @@ data class Challenge(
     val participantCodes: List<String>,
     val createdAt: String,
     val updatedAt: String,
-    val isDemo: Boolean = false
+    val isDemo: Boolean = false,
+    val visibility: ChallengeVisibility = ChallengeVisibility.PUBLIC,
+    /**
+     * Ключ шифрования приватного челленджа. Хранится только на устройствах
+     * участников и никогда не попадает в публичные JSON.
+     */
+    val privateKey: String? = null
 ) {
     val start: LocalDate get() = parseDate(startDate)
     val end: LocalDate get() = parseDate(endDate)
+    val isPrivate: Boolean get() = visibility == ChallengeVisibility.PRIVATE
 
     fun status(today: LocalDate = LocalDate.now()): ChallengeStatus = ChallengeStatus.of(this, today)
 
@@ -298,6 +338,14 @@ data class Challenge(
         ChallengeMode.INTERVAL -> "Цели нужно выполнять каждые $intervalDays дн."
         ChallengeMode.TOTAL -> "Цели можно выполнять в любой день — важен общий результат"
     }
+
+    /** Полный доступ: общий челлендж или приватный, в котором пользователь участвует. */
+    fun hasAccess(code: String?): Boolean =
+        !isPrivate || (code != null && participantCodes.contains(code))
+
+    /** Приглашение можно показать только автору, у которого есть ключ. */
+    fun inviteCode(): String? =
+        if (isPrivate && !privateKey.isNullOrBlank()) InviteCodes.create(id, privateKey) else null
 
     fun withParticipant(code: String): Challenge {
         if (participantCodes.contains(code)) return this
@@ -319,8 +367,28 @@ data class Challenge(
         .put("createdAt", createdAt)
         .put("updatedAt", updatedAt)
         .put("isDemo", isDemo)
+        .put("visibility", visibility.name)
+        .put("privateKey", privateKey ?: JSONObject.NULL)
 
-    fun toSyncJson(): JSONObject = toJson().apply { remove("isDemo") }
+    /**
+     * Публичная версия для data/challenges.json. У приватного челленджа
+     * раскрываются только название и метка видимости.
+     */
+    fun toSyncJson(): JSONObject = if (isPrivate) stubJson() else fullSyncJson()
+
+    /** Полная версия для шифрованного бандла приватного челленджа. */
+    fun toBundleJson(): JSONObject = fullSyncJson()
+
+    private fun stubJson(): JSONObject = JSONObject()
+        .put("id", id)
+        .put("title", title)
+        .put("visibility", visibility.name)
+        .put("updatedAt", updatedAt)
+
+    private fun fullSyncJson(): JSONObject = toJson().apply {
+        remove("isDemo")
+        remove("privateKey")
+    }
 
     companion object {
         fun fromJson(json: JSONObject): Challenge = Challenge(
@@ -337,7 +405,9 @@ data class Challenge(
             participantCodes = json.optJSONArray("participantCodes").toStringList(),
             createdAt = json.optString("createdAt", isoNow()),
             updatedAt = json.optString("updatedAt", isoNow()),
-            isDemo = json.optBoolean("isDemo", false)
+            isDemo = json.optBoolean("isDemo", false),
+            visibility = ChallengeVisibility.parse(json.optString("visibility", null)),
+            privateKey = json.optStringOrNull("privateKey")
         )
     }
 }
@@ -564,7 +634,13 @@ fun defaultActivities(): List<ActivityType> = listOf(
     ActivityType("pushups", "Отжимания", "раз", "💪", 50.0, ProofType.VIDEO, isDefault = true),
     ActivityType("squats", "Приседания", "раз", "🦵", 50.0, ProofType.VIDEO, isDefault = true),
     ActivityType("plank", "Планка", "мин", "🧘", 2.0, ProofType.VIDEO, isDefault = true),
-    ActivityType("abs", "Пресс", "раз", "🔥", 50.0, ProofType.VIDEO, isDefault = true)
+    ActivityType("abs", "Пресс", "раз", "🔥", 50.0, ProofType.VIDEO, isDefault = true),
+    ActivityType("teeth", "Чистка зубов", "раз", "🪥", 2.0, ProofType.PHOTO, isDefault = true),
+    ActivityType("homework", "Домашняя работа", "мин", "📚", 30.0, ProofType.PHOTO, isDefault = true),
+    ActivityType("dancing", "Танцы", "мин", "💃", 20.0, ProofType.VIDEO, isDefault = true),
+    ActivityType("football", "Футбол", "мин", "⚽", 60.0, ProofType.VIDEO, isDefault = true),
+    ActivityType("skiing", "Лыжи", "км", "⛷️", 5.0, ProofType.PHOTO, isDefault = true),
+    ActivityType("skating", "Коньки", "км", "⛸️", 5.0, ProofType.PHOTO, isDefault = true)
 )
 
 fun challengeGoalId(challengeId: String, activityId: String): String = "$challengeId-$activityId"

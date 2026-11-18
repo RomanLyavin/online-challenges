@@ -157,10 +157,78 @@ class ModelsJsonTest {
         val activities = defaultActivities()
         val ids = activities.map { it.id }
 
-        assertTrue(ids.containsAll(listOf("steps", "running", "sleep", "pushups", "squats", "plank", "abs")))
+        assertTrue(
+            ids.containsAll(
+                listOf(
+                    "steps", "running", "sleep", "pushups", "squats", "plank", "abs",
+                    "teeth", "homework", "dancing", "football", "skiing", "skating"
+                )
+            )
+        )
         assertTrue(activities.all { it.isDefault })
         assertEquals(ProofType.VIDEO, activities.first { it.id == "plank" }.proofType)
         assertEquals(ProofType.PHOTO, activities.first { it.id == "steps" }.proofType)
+
+        val teeth = activities.first { it.id == "teeth" }
+        assertEquals(2.0, teeth.defaultTarget, 0.0001)
+        assertEquals(ProofType.PHOTO, teeth.proofType)
+        val dancing = activities.first { it.id == "dancing" }
+        assertEquals(20.0, dancing.defaultTarget, 0.0001)
+        assertEquals(ProofType.VIDEO, dancing.proofType)
+        val skiing = activities.first { it.id == "skiing" }
+        assertEquals(5.0, skiing.defaultTarget, 0.0001)
+        assertEquals(ProofType.PHOTO, skiing.proofType)
+    }
+
+    @Test
+    fun `challenge without visibility defaults to public`() {
+        val json = Challenge(
+            id = "ch-1",
+            title = "Старый челлендж",
+            description = "",
+            startDate = "2026-11-01",
+            endDate = "2026-11-30",
+            mode = ChallengeMode.DAILY,
+            intervalDays = 1,
+            goals = emptyList(),
+            creatorCode = "U-ABC123",
+            creatorName = "Анна",
+            participantCodes = listOf("U-ABC123"),
+            createdAt = "2026-10-20T10:00:00Z",
+            updatedAt = "2026-10-21T11:30:00Z"
+        ).toJson().apply { remove("visibility") }
+
+        val restored = Challenge.fromJson(json)
+
+        assertEquals(ChallengeVisibility.PUBLIC, restored.visibility)
+        assertFalse(restored.isPrivate)
+        assertTrue(restored.hasAccess(null))
+    }
+
+    @Test
+    fun `activity icon paths survive a roundtrip`() {
+        val activity = ActivityType(
+            id = "teeth",
+            name = "Чистка зубов",
+            unit = "раз",
+            emoji = "🪥",
+            defaultTarget = 2.0,
+            proofType = ProofType.PHOTO,
+            isDefault = true,
+            iconPath = "catalog/icons/teeth.jpg"
+        )
+
+        val restored = ActivityType.fromJson(activity.toJson())
+
+        assertEquals("catalog/icons/teeth.jpg", restored.iconPath)
+        assertEquals("catalog/icons/teeth.jpg", activity.toSyncJson().getString("iconPath"))
+        assertFalse(activity.toSyncJson().has("iconLocalPath"))
+
+        val goal = ChallengeGoal(
+            "g-1", "teeth", "Чистка зубов", "раз", "🪥", 2.0, ProofType.PHOTO,
+            iconPath = "catalog/icons/teeth.jpg"
+        )
+        assertEquals("catalog/icons/teeth.jpg", ChallengeGoal.fromJson(goal.toJson()).iconPath)
     }
 
     @Test

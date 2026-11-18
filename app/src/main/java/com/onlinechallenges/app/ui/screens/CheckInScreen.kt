@@ -54,6 +54,7 @@ import com.onlinechallenges.app.data.Dates
 import com.onlinechallenges.app.data.GoalResult
 import com.onlinechallenges.app.data.MediaManager
 import com.onlinechallenges.app.data.ProofType
+import com.onlinechallenges.app.ui.ActivityIcon
 import com.onlinechallenges.app.ui.AppViewModel
 import com.onlinechallenges.app.ui.DateChip
 import com.onlinechallenges.app.ui.DateField
@@ -281,7 +282,12 @@ fun CheckInScreen(vm: AppViewModel) {
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(goal.emoji, style = MaterialTheme.typography.titleLarge)
+                        ActivityIcon(
+                            activityId = goal.activityId,
+                            emoji = goal.emoji,
+                            iconPath = goal.iconPath,
+                            size = 30.dp
+                        )
                         Spacer(Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(goal.name, style = MaterialTheme.typography.titleMedium)
@@ -355,7 +361,7 @@ fun CheckInScreen(vm: AppViewModel) {
                                     ProofChip(
                                         attachment = attachment,
                                         model = vm.attachmentModel(attachment),
-                                        onClick = { openAttachment(context, attachment, vm) }
+                                        onClick = { openAttachment(context, attachment, challenge.id, vm) }
                                     )
                                     TextButton(
                                         onClick = { vm.removeDraftAttachment(goal.id, attachment.id) },

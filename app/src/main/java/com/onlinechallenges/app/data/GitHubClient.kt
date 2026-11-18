@@ -12,6 +12,8 @@ import java.util.concurrent.TimeUnit
 
 data class RemoteFile(val text: String, val sha: String)
 
+data class RemoteBytes(val bytes: ByteArray, val sha: String)
+
 class GitHubException(message: String) : Exception(message)
 
 private class MissingShaException(message: String) : Exception(message)
@@ -47,7 +49,12 @@ class GitHubClient(private val config: GitHubConfig) {
         }
     }
 
-    suspend fun getFile(path: String): RemoteFile? = withContext(Dispatchers.IO) {
+    suspend fun getFile(path: String): RemoteFile? {
+        val remote = getFileBytes(path) ?: return null
+        return RemoteFile(String(remote.bytes, Charsets.UTF_8), remote.sha)
+    }
+
+    suspend fun getFileBytes(path: String): RemoteBytes? = withContext(Dispatchers.IO) {
         val request = request("repos/${config.owner}/${config.repo}/contents/${encodePath(path)}?ref=${config.branch}")
         client.newCall(request).execute().use { response ->
             if (response.code == 404) return@withContext null
@@ -57,9 +64,9 @@ class GitHubClient(private val config: GitHubConfig) {
             if (json.optString("type") != "file") return@withContext null
             val content = json.optString("content", "")
             val decoded = runCatching {
-                String(Base64.getMimeDecoder().decode(content), Charsets.UTF_8)
+                Base64.getMimeDecoder().decode(content)
             }.getOrElse { throw GitHubException("Не удалось прочитать $path из GitHub") }
-            RemoteFile(decoded, json.optString("sha", ""))
+            RemoteBytes(decoded, json.optString("sha", ""))
         }
     }
 

@@ -1,5 +1,6 @@
 package com.onlinechallenges.app.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,15 +15,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,7 +39,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,12 +54,14 @@ import com.onlinechallenges.app.data.Dates
 import com.onlinechallenges.app.data.ParticipantScore
 import com.onlinechallenges.app.data.PeriodScore
 import com.onlinechallenges.app.data.PeriodState
+import com.onlinechallenges.app.ui.ActivityIcon
 import com.onlinechallenges.app.ui.AppViewModel
 import com.onlinechallenges.app.ui.DemoBadge
 import com.onlinechallenges.app.ui.EmptyState
 import com.onlinechallenges.app.ui.GradientHeader
 import com.onlinechallenges.app.ui.InfoBanner
 import com.onlinechallenges.app.ui.PodiumCard
+import com.onlinechallenges.app.ui.PrivateBadge
 import com.onlinechallenges.app.ui.ProofChip
 import com.onlinechallenges.app.ui.ScoreSummary
 import com.onlinechallenges.app.ui.SectionTitle
@@ -69,6 +78,7 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
     val data by vm.data.collectAsStateWithLifecycle()
     val challenge = data.challenge(challengeId)
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     if (challenge == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             EmptyState(
@@ -82,6 +92,10 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
         return
     }
     val profile = data.currentProfile()
+    if (!challenge.hasAccess(profile?.code)) {
+        PrivateLockedScreen(vm, challenge.title)
+        return
+    }
     val today = LocalDate.now()
     val status = challenge.status(today)
     val scores = ChallengeEngine.scoreChallenge(
@@ -139,6 +153,21 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
+                        }
+                        if (challenge.isPrivate) {
+                            Spacer(Modifier.width(6.dp))
+                            Surface(
+                                color = Color.White.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(50)
+                            ) {
+                                Text(
+                                    "🔒 Приватный",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
                         }
                         if (challenge.isDemo) {
                             Spacer(Modifier.width(6.dp))
@@ -259,6 +288,49 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                 }
             }
         }
+        val inviteCode = challenge.inviteCode()
+        if (challenge.isPrivate && inviteCode != null && profile?.code == challenge.creatorCode) {
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                        ),
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                PrivateBadge()
+                                Spacer(Modifier.width(8.dp))
+                                Text("Код приглашения", style = MaterialTheme.typography.titleSmall)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                inviteCode,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Передайте код участникам. Ввод кода — это и есть приглашение: заявки на одобрение не нужны.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(inviteCode))
+                                    Toast.makeText(context, "Код скопирован", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.small
+                            ) { Text("Скопировать код") }
+                        }
+                    }
+                }
+            }
+        }
         if (myScore != null) {
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)) {
@@ -336,7 +408,12 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         challenge.goals.forEachIndexed { index, goal ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(goal.emoji, style = MaterialTheme.typography.titleMedium)
+                                ActivityIcon(
+                                    activityId = goal.activityId,
+                                    emoji = goal.emoji,
+                                    iconPath = goal.iconPath,
+                                    size = 22.dp
+                                )
                                 Spacer(Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(goal.name, style = MaterialTheme.typography.titleSmall)
@@ -443,7 +520,13 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                             modifier = Modifier.padding(vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(goal.emoji, style = MaterialTheme.typography.bodySmall)
+                            ActivityIcon(
+                                activityId = goal.activityId,
+                                emoji = goal.emoji,
+                                iconPath = goal.iconPath,
+                                size = 16.dp,
+                                textStyle = MaterialTheme.typography.bodySmall
+                            )
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 "${goal.name}: ${com.onlinechallenges.app.ui.formatNumber(result.actual)} / ${formatTarget(goal)}",
@@ -491,7 +574,7 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                                     ProofChip(
                                         attachment = attachment,
                                         model = vm.attachmentModel(attachment),
-                                        onClick = { openAttachment(context, attachment, vm) }
+                                        onClick = { openAttachment(context, attachment, challenge.id, vm) }
                                     )
                                 }
                             }
@@ -507,6 +590,71 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                 modifier = Modifier.padding(horizontal = 20.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun PrivateLockedScreen(vm: AppViewModel, title: String) {
+    val busy by vm.privateJoinBusy.collectAsStateWithLifecycle()
+    var code by remember { mutableStateOf("") }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.height(24.dp))
+        Text("🔒", style = MaterialTheme.typography.displayMedium)
+        Spacer(Modifier.height(10.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(8.dp))
+        PrivateBadge()
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "Приватный челлендж. Цели, результаты, фото и видео доступны только участникам. Введите код приглашения от автора.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(18.dp))
+        OutlinedTextField(
+            value = code,
+            onValueChange = { code = it },
+            label = { Text("Код приглашения") },
+            placeholder = { Text("OC1.…") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = { vm.joinPrivateChallenge(code) },
+            enabled = code.isNotBlank() && !busy,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            shape = MaterialTheme.shapes.small
+        ) {
+            if (busy) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Text("Войти по коду")
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = { vm.back() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = MaterialTheme.shapes.small
+        ) { Text("Назад") }
+        Spacer(Modifier.height(14.dp))
+        InfoBanner("На сайте по приватным челленджам видны только имена, очки и места.")
     }
 }
 
