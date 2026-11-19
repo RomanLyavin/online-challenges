@@ -64,24 +64,39 @@ class SyncManager(
         val remoteStandings = readFile(client, PATH_STANDINGS, cache)
 
         val before = repo.snapshot()
+        val remoteDeletedIds = parseDeletedIds(remoteChallenges?.text)
+        val deletedIds = (before.deletedChallengeIds + remoteDeletedIds).distinct()
+        val deletedSet = deletedIds.toSet()
         val remoteActivities = parseActivities(remoteCatalog?.text)
         val remoteChallengesList = parseChallenges(remoteChallenges?.text)
+            .filterNot { it.id in deletedSet }
         val remoteProfilesList = parseProfiles(remoteProfiles?.text)
         val remoteCheckInsList = parseCheckIns(remoteCheckIns?.text)
+            .filterNot { it.challengeId in deletedSet }
         val remoteConfirmationsList = parseConfirmations(remoteConfirmations?.text)
+            .filterNot { it.challengeId in deletedSet }
 
         val demos = before.challenges.filter { it.isDemo }
-        val localPublic = before.challenges.filter { !it.isDemo && it.visibility == ChallengeVisibility.PUBLIC }
+        val localPublic = before.challenges.filter {
+            !it.isDemo && it.visibility == ChallengeVisibility.PUBLIC && it.id !in deletedSet
+        }
         val localPrivate = before.challenges
-            .filter { !it.isDemo && it.visibility == ChallengeVisibility.PRIVATE }
+            .filter {
+                !it.isDemo && it.visibility == ChallengeVisibility.PRIVATE && it.id !in deletedSet
+            }
             .associateBy { it.id }
             .toMutableMap()
 
-        val remotePublic = remoteChallengesList.filter { it.visibility == ChallengeVisibility.PUBLIC }
         val remoteStubs = remoteChallengesList.filter { it.visibility == ChallengeVisibility.PRIVATE }
+        val remoteStubIds = remoteStubs.map { it.id }.toSet()
+        val remotePublic = remoteChallengesList.filter {
+            it.visibility == ChallengeVisibility.PUBLIC && it.id !in remoteStubIds
+        }
 
-        val mergedPublic = mergeChallenges(localPublic, remotePublic)
-        val publicIds = mergedPublic.map { it.id }.toSet()
+        val mergedPublic = mergeChallenges(
+            localPublic.filterNot { it.id in localPrivate.keys },
+            remotePublic
+        )
 
         // Публичные заголовки приватных челленджей и локальные расшифрованные данные.
         for (stub in remoteStubs) {
@@ -101,6 +116,9 @@ class SyncManager(
         }
 
         val privateIds = localPrivate.keys.toSet()
+        // Публичная копия с id приватного челленджа — это старая ошибка
+        // синхронизации. Её нельзя использовать для публикации отметок.
+        val publicIds = mergedPublic.map { it.id }.toSet() - privateIds
         val privateCheckIns = before.checkIns
             .filter { it.challengeId in privateIds }
             .toMutableList()
@@ -138,9 +156,13 @@ class SyncManager(
         }
 
         // Публичные файлы больше не должны содержать отметки и подтверждения
-        // приватных челленджей — даже старые версии этих файлов.
-        val baseCheckIns = before.checkIns.filter { it.isDemo || it.challengeId !in privateIds }
-        val baseConfirmations = before.confirmations.filter { it.isDemo || it.challengeId !in privateIds }
+        // приватных или удалённых челленджей — даже старые версии этих файлов.
+        val baseCheckIns = before.checkIns.filter {
+            it.isDemo || (it.challengeId !in privateIds && it.challengeId !in deletedSet)
+        }
+        val baseConfirmations = before.confirmations.filter {
+            it.isDemo || (it.challengeId !in privateIds && it.challengeId !in deletedSet)
+        }
         val allCheckIns = mergeCheckIns(
             baseCheckIns,
             remoteCheckInsList.filter { it.challengeId in publicIds }
@@ -153,9 +175,10 @@ class SyncManager(
         val merged = Awards.apply(
             before.copy(
                 activities = mergeActivities(before.activities, remoteActivities),
-                challenges = demos + mergedPublic + localPrivate.values,
-                checkIns = allCheckIns,
-                confirmations = allConfirmations
+                challenges = normalizeChallenges(demos + mergedPublic + localPrivate.values),
+                checkIns = allCheckIns.distinctBy { it.id },
+                confirmations = allConfirmations.distinctBy { it.key },
+                deletedChallengeIds = deletedIds
             )
         )
         repo.replace(merged)
@@ -167,8 +190,8 @@ class SyncManager(
 
         // Сначала публикуем структуру: каталог, челленджи, профили, отметки и подтверждения.
         pushJson(client, PATH_CATALOG, catalogJson(merged.activities), "Sync catalog", cache)
-        pushJson(client, PATH_CHALLENGES, challengesJson(merged.challenges), "Sync challenges", cache)
-        pushJson(client, PATH_PROFILES, profilesJson(merged.profiles, privateIdsForProfiles), "Sync profiles", cache)
+        pushJson(client, PATH_CHALLENGES, challengesJson(merged.challenges, deletedIds), "Sync challenges", cache)
+        pushJson(client, PATH_PROFILES, profilesJson(merged.profiles, privateIdsForProfiles + deletedSet), "Sync profiles", cache)
         pushJson(client, PATH_CHECKINS, checkInsJson(merged.checkIns, publicIds), "Sync check-ins", cache)
         pushJson(
             client,
@@ -189,7 +212,7 @@ class SyncManager(
         pushJson(
             client,
             PATH_PROFILES,
-            profilesJson(afterUploads.profiles, privateIdsForProfiles),
+            profilesJson(afterUploads.profiles, privateIdsForProfiles + deletedSet),
             "Sync avatars",
             cache
         )
@@ -201,6 +224,10 @@ class SyncManager(
             cache
         )
         pushPrivateBundles(client, afterUploads, remotePrivate, warnings)
+        // Удалённые челленджи не должны оставаться в зашифрованных файлах.
+        for (id in deletedIds) {
+            runCatching { client.deleteFile(privateBundlePath(id), "Delete private challenge") }
+        }
 
         val previousStandings = remoteStandings?.text?.let {
             runCatching { JSONObject(it) }.getOrNull()
@@ -506,7 +533,14 @@ class SyncManager(
 
     private fun parseChallenges(text: String?): List<Challenge> =
         if (text.isNullOrBlank()) emptyList() else runCatching {
-            JSONObject(text).optJSONArray("challenges").toList { Challenge.fromJson(it) }
+            normalizeChallenges(
+                JSONObject(text).optJSONArray("challenges").toList { Challenge.fromJson(it) }
+            )
+        }.getOrDefault(emptyList())
+
+    private fun parseDeletedIds(text: String?): List<String> =
+        if (text.isNullOrBlank()) emptyList() else runCatching {
+            JSONObject(text).optJSONArray("deletedChallengeIds").toStringList().distinct()
         }.getOrDefault(emptyList())
 
     private fun parseProfiles(text: String?): List<Profile> =
@@ -517,20 +551,30 @@ class SyncManager(
     private fun parseCheckIns(text: String?): List<CheckIn> =
         if (text.isNullOrBlank()) emptyList() else runCatching {
             JSONObject(text).optJSONArray("checkIns").toList { CheckIn.fromJson(it) }
+                .distinctBy { it.id }
         }.getOrDefault(emptyList())
 
     private fun parseConfirmations(text: String?): List<PeerConfirmation> =
         if (text.isNullOrBlank()) emptyList() else runCatching {
             JSONObject(text).optJSONArray("confirmations").toList { PeerConfirmation.fromJson(it) }
+                .distinctBy { it.key }
         }.getOrDefault(emptyList())
 
     private fun catalogJson(activities: List<ActivityType>): JSONObject = JSONObject()
         .put("version", 1)
         .put("activities", JSONArray(activities.map { it.toSyncJson() }))
 
-    private fun challengesJson(challenges: List<Challenge>): JSONObject = JSONObject()
+    private fun challengesJson(challenges: List<Challenge>, deletedIds: List<String>): JSONObject = JSONObject()
         .put("version", 1)
-        .put("challenges", JSONArray(challenges.filterNot { it.isDemo }.map { it.toSyncJson() }))
+        .put(
+            "challenges",
+            JSONArray(
+                normalizeChallenges(challenges)
+                    .filterNot { it.isDemo }
+                    .map { it.toSyncJson() }
+            )
+        )
+        .put("deletedChallengeIds", JSONArray(deletedIds.distinct()))
 
     private fun profilesJson(profiles: List<Profile>, privateChallengeIds: Set<String>): JSONObject = JSONObject()
         .put("version", 1)
@@ -549,6 +593,7 @@ class SyncManager(
             checkIns
                 .filterNot { it.isDemo }
                 .filter { it.challengeId in publicChallengeIds }
+                .distinctBy { it.id }
                 .map { it.toSyncJson() }
         ))
 
@@ -561,6 +606,7 @@ class SyncManager(
             confirmations
                 .filterNot { it.isDemo }
                 .filter { it.challengeId in publicChallengeIds }
+                .distinctBy { it.key }
                 .map { it.toSyncJson() }
         ))
 

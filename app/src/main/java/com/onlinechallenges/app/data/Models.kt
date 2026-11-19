@@ -341,7 +341,11 @@ data class Challenge(
 
     /** Полный доступ: общий челлендж или приватный, в котором пользователь участвует. */
     fun hasAccess(code: String?): Boolean =
-        !isPrivate || (code != null && participantCodes.contains(code))
+        !isPrivate || (code != null && (code == creatorCode || participantCodes.contains(code)))
+
+    /** Управлять челленджем может только его организатор. */
+    fun isManagedBy(code: String?): Boolean =
+        code != null && creatorCode.isNotBlank() && creatorCode == code
 
     /** Приглашение можно показать только автору, у которого есть ключ. */
     fun inviteCode(): String? =
@@ -391,25 +395,72 @@ data class Challenge(
     }
 
     companion object {
-        fun fromJson(json: JSONObject): Challenge = Challenge(
-            id = json.getString("id"),
-            title = json.optString("title", "Челлендж"),
-            description = json.optString("description", ""),
-            startDate = json.optString("startDate", LocalDate.now().toString()),
-            endDate = json.optString("endDate", LocalDate.now().plusDays(7).toString()),
-            mode = ChallengeMode.parse(json.optString("mode", null)),
-            intervalDays = json.optInt("intervalDays", 1).coerceIn(1, 30),
-            goals = json.optJSONArray("goals").toList { ChallengeGoal.fromJson(it) },
-            creatorCode = json.optString("creatorCode", ""),
-            creatorName = json.optString("creatorName", "Организатор"),
-            participantCodes = json.optJSONArray("participantCodes").toStringList(),
-            createdAt = json.optString("createdAt", isoNow()),
-            updatedAt = json.optString("updatedAt", isoNow()),
-            isDemo = json.optBoolean("isDemo", false),
-            visibility = ChallengeVisibility.parse(json.optString("visibility", null)),
-            privateKey = json.optStringOrNull("privateKey")
-        )
+        const val DEFAULT_ORGANIZER_CODE = "U-5DLSEU"
+        const val DEFAULT_ORGANIZER_NAME = "Ромка"
+
+        fun fromJson(json: JSONObject): Challenge {
+            val goals = json.optJSONArray("goals").toList { ChallengeGoal.fromJson(it) }
+                .distinctBy { it.id }
+            val participantCodes = json.optJSONArray("participantCodes").toStringList().distinct()
+            val visibility = ChallengeVisibility.parse(json.optString("visibility", null))
+            val rawCreatorCode = json.optString("creatorCode", "").trim()
+            // Старые общие челленджи создавались без явного организатора.
+            // Приватные заглушки не получают организатора по умолчанию: иначе
+            // любой владелец этого кода увидел бы закрытый челлендж.
+            val creatorCode = rawCreatorCode.ifBlank {
+                if (visibility == ChallengeVisibility.PUBLIC ||
+                    goals.isNotEmpty() || participantCodes.isNotEmpty()
+                ) {
+                    DEFAULT_ORGANIZER_CODE
+                } else {
+                    ""
+                }
+            }
+            val creatorName = json.optString("creatorName", "").ifBlank {
+                if (creatorCode == DEFAULT_ORGANIZER_CODE) DEFAULT_ORGANIZER_NAME else "Организатор"
+            }
+            return Challenge(
+                id = json.getString("id"),
+                title = json.optString("title", "Челлендж"),
+                description = json.optString("description", ""),
+                startDate = json.optString("startDate", LocalDate.now().toString()),
+                endDate = json.optString("endDate", LocalDate.now().plusDays(7).toString()),
+                mode = ChallengeMode.parse(json.optString("mode", null)),
+                intervalDays = json.optInt("intervalDays", 1).coerceIn(1, 30),
+                goals = goals,
+                creatorCode = creatorCode,
+                creatorName = creatorName,
+                participantCodes = participantCodes,
+                createdAt = json.optString("createdAt", isoNow()),
+                updatedAt = json.optString("updatedAt", isoNow()),
+                isDemo = json.optBoolean("isDemo", false),
+                visibility = visibility,
+                privateKey = json.optStringOrNull("privateKey")
+            )
+        }
     }
+}
+
+/**
+ * Убирает дубликаты челленджей по id. При конфликте приватная версия важнее
+ * публичной: иначе старая ошибочная публичная копия снова открывает данные
+ * приватного челленджа. Среди приватных версий побеждает более полная.
+ */
+fun normalizeChallenges(challenges: List<Challenge>): List<Challenge> {
+    val result = LinkedHashMap<String, Challenge>()
+    for (challenge in challenges) {
+        val current = result[challenge.id]
+        result[challenge.id] = when {
+            current == null -> challenge
+            challenge.isPrivate && !current.isPrivate -> challenge
+            !challenge.isPrivate && current.isPrivate -> current
+            challenge.goals.size != current.goals.size ->
+                if (challenge.goals.size > current.goals.size) challenge else current
+            challenge.updatedAt > current.updatedAt -> challenge
+            else -> current
+        }
+    }
+    return result.values.toList()
 }
 
 data class Attachment(
@@ -587,12 +638,19 @@ data class AppData(
     val activities: List<ActivityType> = defaultActivities(),
     val challenges: List<Challenge> = emptyList(),
     val checkIns: List<CheckIn> = emptyList(),
-    val confirmations: List<PeerConfirmation> = emptyList()
+    val confirmations: List<PeerConfirmation> = emptyList(),
+    /**
+     * Tombstone-идентификаторы удалённых челленджей. Список публикуется в
+     * challenges.json, чтобы удаление не откатилось синхронизацией с другого
+     * устройства.
+     */
+    val deletedChallengeIds: List<String> = emptyList()
 ) {
     fun profile(code: String?): Profile? = profiles.firstOrNull { it.code == code }
     fun account(email: String): UserAccount? = accounts.firstOrNull { it.email.equals(email, ignoreCase = true) }
     fun currentProfile(): Profile? = profile(sessionCode)
-    fun challenge(id: String): Challenge? = challenges.firstOrNull { it.id == id }
+    fun challenge(id: String): Challenge? =
+        normalizeChallenges(challenges.filter { it.id == id }).firstOrNull()
     fun checkInsFor(challengeId: String, code: String): List<CheckIn> =
         checkIns.filter { it.challengeId == challengeId && it.userCode == code }
 
@@ -610,9 +668,27 @@ data class AppData(
     }
 
     fun withChallenge(updated: Challenge): AppData {
-        val exists = challenges.any { it.id == updated.id }
-        return copy(challenges = if (exists) challenges.map { if (it.id == updated.id) updated else it } else challenges + updated)
+        // Удаляем все прежние копии с тем же id: после старых ошибок синхронизации
+        // в локальном списке могли оказаться публичная и приватная версии сразу.
+        return copy(challenges = challenges.filterNot { it.id == updated.id } + updated)
     }
+
+    fun withoutChallenge(id: String): AppData = copy(
+        challenges = challenges.filterNot { it.id == id },
+        checkIns = checkIns.filterNot { it.challengeId == id },
+        confirmations = confirmations.filterNot { it.challengeId == id },
+        profiles = profiles.map { profile ->
+            if (profile.medals.none { it.challengeId == id }) {
+                profile
+            } else {
+                profile.copy(
+                    medals = profile.medals.filterNot { it.challengeId == id },
+                    updatedAt = isoNow()
+                )
+            }
+        },
+        deletedChallengeIds = (deletedChallengeIds + id).distinct()
+    )
 
     fun withCheckIn(updated: CheckIn): AppData {
         val exists = checkIns.any { it.id == updated.id }

@@ -75,6 +75,32 @@ class ChallengeEngineTest {
     }
 
     @Test
+    fun `duplicate participants and check-ins are counted once`() {
+        val challenge = challenge(
+            id = "duplicates",
+            mode = ChallengeMode.DAILY,
+            start = start,
+            end = start,
+            goals = listOf(goal("steps", target = 10_000.0)),
+            participants = listOf("A", "A", "A")
+        )
+        val checkIn = checkIn(challenge.id, "A", start, result("steps", 12_000.0, photo("steps")))
+        val duplicate = checkIn.copy(id = "duplicate-id")
+
+        val scores = ChallengeEngine.scoreChallenge(
+            challenge,
+            listOf(checkIn, duplicate),
+            profiles("A"),
+            start
+        )
+
+        assertEquals(1, scores.size)
+        assertEquals("A", scores.single().code)
+        assertEquals(1, scores.single().points)
+        assertEquals(1, scores.single().place)
+    }
+
+    @Test
     fun `daily goal without matching proof gives no point`() {
         val challenge = challenge(
             id = "proof-type",

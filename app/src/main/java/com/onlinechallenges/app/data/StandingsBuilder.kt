@@ -13,18 +13,30 @@ object StandingsBuilder {
         previous: JSONObject? = null
     ): JSONObject {
         val profiles = data.profiles.filterNot { it.isDemo }
-        val challenges = data.challenges.filterNot { it.isDemo }
-        val checkIns = data.checkIns.filterNot { it.isDemo }
+        val deletedIds = data.deletedChallengeIds.toSet()
+        val challenges = normalizeChallenges(data.challenges)
+            .filterNot { it.isDemo || it.id in deletedIds }
+        val checkIns = data.checkIns.filterNot { it.isDemo || it.challengeId in deletedIds }
         val publicChallenges = challenges.filter { it.visibility != ChallengeVisibility.PRIVATE }
         val privateChallenges = challenges.filter { it.visibility == ChallengeVisibility.PRIVATE }
 
-        val privateEntries = privateEntries(privateChallenges, checkIns, profiles, data.confirmations, today, previous)
+        val privateEntries = privateEntries(
+            privateChallenges,
+            checkIns,
+            profiles,
+            data.confirmations,
+            today,
+            previous,
+            deletedIds
+        )
         val privateChallengeIds = privateChallenges.map { it.id }.toSet()
 
         val userTotals = profiles.map { profile ->
             // Медали приватных челленджей не публикуются: в общем рейтинге
             // учитываются только медали общих челленджей.
-            val publicMedals = profile.medals.filterNot { it.challengeId in privateChallengeIds }
+            val publicMedals = profile.medals.filterNot {
+                it.challengeId in privateChallengeIds || it.challengeId in deletedIds
+            }
             val scores = publicChallenges.filter { it.participantCodes.contains(profile.code) }
                 .map {
                     ChallengeEngine.scoreParticipant(
@@ -201,13 +213,17 @@ object StandingsBuilder {
         profiles: List<Profile>,
         confirmations: List<PeerConfirmation>,
         today: LocalDate,
-        previous: JSONObject?
+        previous: JSONObject?,
+        deletedIds: Set<String>
     ): Map<String, JSONObject> {
         val preserved = LinkedHashMap<String, JSONObject>()
         previous?.optJSONArray("challenges")?.toList { it }?.forEach { entry ->
             val visibility = entry.optString("visibility")
-            if (visibility.equals(ChallengeVisibility.PRIVATE.name, ignoreCase = true)) {
-                preserved[entry.optString("id")] = sanitizePrivateEntry(entry)
+            val id = entry.optString("id")
+            if (visibility.equals(ChallengeVisibility.PRIVATE.name, ignoreCase = true) &&
+                id !in deletedIds
+            ) {
+                preserved[id] = sanitizePrivateEntry(entry)
             }
         }
 

@@ -41,6 +41,7 @@ import com.onlinechallenges.app.data.SyncPrefs
 import com.onlinechallenges.app.data.VerificationCodes
 import com.onlinechallenges.app.data.isoNow
 import com.onlinechallenges.app.data.parseDate
+import com.onlinechallenges.app.data.parseDateOrNull
 import com.onlinechallenges.app.update.ApkVerifier
 import com.onlinechallenges.app.update.GitHubRelease
 import com.onlinechallenges.app.update.GitHubUpdate
@@ -393,6 +394,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             uiMessage.value = "Неверный код приглашения"
             return
         }
+        if (parsed.challengeId in repository.snapshot().deletedChallengeIds) {
+            uiMessage.value = "Этот челлендж удалён организатором"
+            return
+        }
         val config = syncPrefs.load()
         if (!config.isConfigured) {
             uiMessage.value = "Синхронизация не настроена"
@@ -424,6 +429,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     } else {
                         bundle.challenge
                     }
+                    val alreadyParticipant = existing?.goals?.isNotEmpty() == true &&
+                        existing.hasAccess(profile.code)
                     val challenge = base.copy(
                         visibility = ChallengeVisibility.PRIVATE,
                         privateKey = parsed.key,
@@ -442,23 +449,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         bundle.confirmations
                     )
                     val updatedBundle = PrivateBundle(challenge, mergedCheckIns, mergedConfirmations)
-                    client.putFile(
-                        path,
-                        CryptoBox.encryptText(updatedBundle.toJson().toString(), parsed.key),
-                        "Join private challenge",
-                        remote.sha
-                    )
-                    updatedBundle
+                    // Повторный ввод того же кода не должен перезаписывать бандл.
+                    // Иначе два устройства затирают отметки друг друга и получают
+                    // конфликт версий при синхронизации.
+                    if (!alreadyParticipant &&
+                        updatedBundle.toJson().toString() != bundle.toJson().toString()
+                    ) {
+                        client.putFile(
+                            path,
+                            CryptoBox.encryptText(updatedBundle.toJson().toString(), parsed.key),
+                            "Join private challenge",
+                            remote.sha
+                        )
+                    }
+                    updatedBundle to alreadyParticipant
                 }
                 repository.update { current ->
                     current
-                        .withChallenge(joined.challenge)
+                        .withChallenge(joined.first.challenge)
                         .copy(
-                            checkIns = current.checkIns.filterNot { it.challengeId == joined.challenge.id } + joined.checkIns,
-                            confirmations = current.confirmations.filterNot { it.challengeId == joined.challenge.id } + joined.confirmations
+                            checkIns = current.checkIns.filterNot { it.challengeId == joined.first.challenge.id } +
+                                joined.first.checkIns,
+                            confirmations = current.confirmations.filterNot {
+                                it.challengeId == joined.first.challenge.id
+                            } + joined.first.confirmations
                         )
                 }
-                uiMessage.value = "Вы присоединились к приватному челленджу"
+                uiMessage.value = if (joined.second) {
+                    "Вы уже участвуете в этом челлендже"
+                } else {
+                    "Вы присоединились к приватному челленджу"
+                }
                 syncNow()
             } catch (error: Exception) {
                 uiMessage.value = error.message ?: "Не удалось присоединиться"
@@ -466,6 +487,66 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 privateJoinBusy.value = false
             }
         }
+    }
+
+    /** Меняет дату окончания. Доступно только организатору челленджа. */
+    fun updateChallengeEndDate(challengeId: String, newEndDate: String): String? {
+        val profile = currentProfile() ?: return "Сначала войдите"
+        val challenge = repository.snapshot().challenge(challengeId) ?: return "Челлендж не найден"
+        if (challenge.isDemo) return "Демо-челлендж нельзя изменить"
+        if (!challenge.isManagedBy(profile.code)) return "Менять дату может только организатор"
+        val newEnd = parseDateOrNull(newEndDate) ?: return "Введите корректную дату"
+        if (newEnd.isBefore(challenge.start)) return "Дата окончания раньше даты начала"
+        if (newEnd.isBefore(LocalDate.now())) return "Дата окончания уже прошла"
+        val updated = challenge.copy(endDate = newEnd.toString(), updatedAt = isoNow())
+        repository.update { current -> Awards.apply(current.withChallenge(updated)) }
+        uiMessage.value = "Дата окончания изменена"
+        autoSyncIfEnabled()
+        return null
+    }
+
+    /** Удаляет челлендж и связанные с ним отметки. Доступно организатору. */
+    fun deleteChallenge(challengeId: String): String? {
+        val profile = currentProfile() ?: return "Сначала войдите"
+        val state = repository.snapshot()
+        val challenge = state.challenge(challengeId) ?: return "Челлендж не найден"
+        if (challenge.isDemo) return "Демо-челлендж нельзя удалить"
+        if (!challenge.isManagedBy(profile.code)) return "Удалять может только организатор"
+        val remoteFiles = state.checkIns
+            .filter { it.challengeId == challengeId }
+            .flatMap { checkIn -> checkIn.results.flatMap { it.attachments } }
+            .mapNotNull { it.remotePath }
+            .filter { it.isNotBlank() }
+            .distinct()
+        repository.update { it.withoutChallenge(challengeId) }
+        uiMessage.value = "Челлендж удалён"
+        val config = syncPrefs.load()
+        if (config.isConfigured) {
+            viewModelScope.launch {
+                val paths = if (challenge.isPrivate) {
+                    listOf(SyncManager.privateBundlePath(challengeId)) + remoteFiles
+                } else {
+                    remoteFiles
+                }
+                val failed = withContext(Dispatchers.IO) {
+                    val client = GitHubClient(config)
+                    var count = 0
+                    for (path in paths.distinct()) {
+                        try {
+                            client.deleteFile(path, "Delete challenge")
+                        } catch (error: Exception) {
+                            count++
+                        }
+                    }
+                    count
+                }
+                if (failed > 0) {
+                    uiMessage.value = "Челлендж удалён, но не все файлы удалось убрать из GitHub"
+                }
+            }
+        }
+        autoSyncIfEnabled()
+        return null
     }
 
     // ---------- Отметки ----------

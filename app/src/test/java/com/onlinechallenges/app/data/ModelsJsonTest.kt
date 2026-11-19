@@ -1,5 +1,6 @@
 package com.onlinechallenges.app.data
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -236,5 +237,154 @@ class ModelsJsonTest {
         assertEquals(Gender.UNSPECIFIED, Gender.parse("OTHER"))
         assertEquals(ProofType.PHOTO, ProofType.parse(null))
         assertEquals(ChallengeMode.DAILY, ChallengeMode.parse("UNKNOWN"))
+    }
+
+    @Test
+    fun `normalization keeps the private version of a duplicated challenge`() {
+        val publicStub = Challenge(
+            id = "ch-duplicate",
+            title = "Приватный",
+            description = "",
+            startDate = "2026-11-18",
+            endDate = "2026-11-22",
+            mode = ChallengeMode.DAILY,
+            intervalDays = 1,
+            goals = emptyList(),
+            creatorCode = "",
+            creatorName = "Организатор",
+            participantCodes = emptyList(),
+            createdAt = "2026-11-18T16:33:11Z",
+            updatedAt = "2026-11-18T16:33:11Z"
+        )
+        val privateFull = publicStub.copy(
+            visibility = ChallengeVisibility.PRIVATE,
+            goals = listOf(
+                ChallengeGoal("goal-steps", "steps", "Шаги", "шагов", "👟", 1_000.0, ProofType.PHOTO)
+            ),
+            creatorCode = "U-5DLSEU",
+            creatorName = "Ромка",
+            participantCodes = listOf("U-5DLSEU"),
+            updatedAt = "2026-11-18T16:34:04Z"
+        )
+
+        val normalized = normalizeChallenges(listOf(publicStub, privateFull, privateFull.copy()))
+
+        assertEquals(1, normalized.size)
+        assertTrue(normalized.single().isPrivate)
+        assertEquals(1, normalized.single().goals.size)
+        assertEquals("U-5DLSEU", normalized.single().creatorCode)
+    }
+
+    @Test
+    fun `old public challenge gets the default organizer`() {
+        val json = JSONObject()
+            .put("id", "ch-old")
+            .put("title", "Старый челлендж")
+            .put("visibility", "PUBLIC")
+
+        val restored = Challenge.fromJson(json)
+
+        assertEquals(Challenge.DEFAULT_ORGANIZER_CODE, restored.creatorCode)
+        assertEquals(Challenge.DEFAULT_ORGANIZER_NAME, restored.creatorName)
+        assertTrue(restored.isManagedBy(Challenge.DEFAULT_ORGANIZER_CODE))
+    }
+
+    @Test
+    fun `empty private stub does not get the default organizer`() {
+        val json = JSONObject()
+            .put("id", "ch-private")
+            .put("title", "Приватный")
+            .put("visibility", "PRIVATE")
+
+        val restored = Challenge.fromJson(json)
+
+        assertEquals("", restored.creatorCode)
+        assertFalse(restored.isManagedBy(Challenge.DEFAULT_ORGANIZER_CODE))
+        assertFalse(restored.hasAccess(Challenge.DEFAULT_ORGANIZER_CODE))
+    }
+
+    @Test
+    fun `private organizer has access without being in participant list`() {
+        val private = Challenge(
+            id = "ch-private",
+            title = "Приватный",
+            description = "",
+            startDate = "2026-11-18",
+            endDate = "2026-11-22",
+            mode = ChallengeMode.DAILY,
+            intervalDays = 1,
+            goals = emptyList(),
+            creatorCode = "U-OWNER",
+            creatorName = "Организатор",
+            participantCodes = emptyList(),
+            createdAt = "2026-11-18T16:33:11Z",
+            updatedAt = "2026-11-18T16:33:11Z",
+            visibility = ChallengeVisibility.PRIVATE
+        )
+
+        assertTrue(private.hasAccess("U-OWNER"))
+        assertTrue(private.isManagedBy("U-OWNER"))
+        assertFalse(private.hasAccess("U-GUEST"))
+        assertFalse(private.isManagedBy("U-GUEST"))
+    }
+
+    @Test
+    fun `deleting a challenge removes related data and remembers the id`() {
+        val challenge = Challenge(
+            id = "ch-1",
+            title = "Челлендж",
+            description = "",
+            startDate = "2026-11-18",
+            endDate = "2026-11-22",
+            mode = ChallengeMode.DAILY,
+            intervalDays = 1,
+            goals = emptyList(),
+            creatorCode = "U-OWNER",
+            creatorName = "Организатор",
+            participantCodes = listOf("U-OWNER"),
+            createdAt = "2026-11-18T16:33:11Z",
+            updatedAt = "2026-11-18T16:33:11Z"
+        )
+        val checkIn = CheckIn(
+            id = "ci-1",
+            challengeId = challenge.id,
+            userCode = "U-OWNER",
+            date = "2026-11-18",
+            results = emptyList(),
+            createdAt = "2026-11-18T17:00:00Z",
+            updatedAt = "2026-11-18T17:00:00Z"
+        )
+        val confirmation = PeerConfirmation(
+            challengeId = challenge.id,
+            checkInUserCode = "U-OWNER",
+            date = "2026-11-18",
+            goalId = "goal-steps",
+            confirmerCode = "U-OTHER",
+            actual = 1.0,
+            createdAt = "2026-11-18T17:00:00Z",
+            updatedAt = "2026-11-18T17:00:00Z"
+        )
+
+        val cleaned = AppData(
+            profiles = listOf(
+                Profile(
+                    code = "U-OWNER",
+                    name = "Организатор",
+                    medals = listOf(
+                        Medal(challenge.id, challenge.title, 1, "2026-11-18T20:00:00Z")
+                    )
+                )
+            ),
+            challenges = listOf(challenge),
+            checkIns = listOf(checkIn),
+            confirmations = listOf(confirmation)
+        ).withoutChallenge(challenge.id)
+
+        assertTrue(cleaned.challenges.isEmpty())
+        assertTrue(cleaned.checkIns.isEmpty())
+        assertTrue(cleaned.confirmations.isEmpty())
+        assertTrue(cleaned.profiles.single().medals.isEmpty())
+        assertEquals(listOf(challenge.id), cleaned.deletedChallengeIds)
+        assertNull(cleaned.challenge(challenge.id))
     }
 }

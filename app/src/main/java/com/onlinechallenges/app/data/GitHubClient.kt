@@ -136,6 +136,29 @@ class GitHubClient(private val config: GitHubConfig) {
     suspend fun putText(path: String, text: String, message: String, sha: String? = null): String =
         putFile(path, text.toByteArray(Charsets.UTF_8), message, sha)
 
+    /** Удаляет файл из репозитория. Если файла уже нет, возвращает false. */
+    suspend fun deleteFile(path: String, message: String): Boolean = withContext(Dispatchers.IO) {
+        val sha = getFileSha(path) ?: return@withContext false
+        val payload = JSONObject()
+            .put("message", message)
+            .put("sha", sha)
+            .put("branch", config.branch)
+        val request = Request.Builder()
+            .url("https://api.github.com/repos/${config.owner}/${config.repo}/contents/${encodePath(path)}")
+            .header("Authorization", "Bearer ${config.token}")
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "OnlineChallenges-Android")
+            .delete(payload.toString().toRequestBody(jsonType))
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (response.code == 404) return@withContext false
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw GitHubException(errorMessage(response.code, body))
+            true
+        }
+    }
+
     fun rawUrl(path: String): String =
         "https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch}/${path.trimStart('/')}"
 

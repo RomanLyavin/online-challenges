@@ -14,6 +14,22 @@ object Awards {
     fun apply(data: AppData, today: LocalDate = LocalDate.now()): AppData {
         var profiles = data.profiles
         var changed = false
+        // Медали не должны оставаться у удалённого челленджа или у челленджа,
+        // которому организатор продлил дату окончания.
+        val activeIds = data.challenges
+            .filter { !today.isAfter(it.end) }
+            .map { it.id }
+            .toSet()
+        val hiddenIds = data.deletedChallengeIds.toSet() + activeIds
+        profiles = profiles.map { profile ->
+            val kept = profile.medals.filterNot { it.challengeId in hiddenIds }
+            if (kept.size == profile.medals.size) {
+                profile
+            } else {
+                changed = true
+                profile.copy(medals = kept, updatedAt = isoNow())
+            }
+        }
         for (challenge in data.challenges) {
             if (!today.isAfter(challenge.end)) continue
             val updates = ChallengeEngine.awardMedals(

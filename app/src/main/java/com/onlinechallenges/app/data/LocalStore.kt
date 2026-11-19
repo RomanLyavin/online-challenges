@@ -24,9 +24,14 @@ class LocalStore(private val context: Context) {
                 sessionCode = json.optStringOrNull("sessionCode"),
                 profiles = json.optJSONArray("profiles").toList { Profile.fromJson(it) },
                 activities = mergeActivities(activities),
-                challenges = json.optJSONArray("challenges").toList { Challenge.fromJson(it) },
-                checkIns = json.optJSONArray("checkIns").toList { CheckIn.fromJson(it) },
+                challenges = normalizeChallenges(
+                    json.optJSONArray("challenges").toList { Challenge.fromJson(it) }
+                ),
+                checkIns = json.optJSONArray("checkIns").toList { CheckIn.fromJson(it) }
+                    .distinctBy { it.id },
                 confirmations = json.optJSONArray("confirmations").toList { PeerConfirmation.fromJson(it) }
+                    .distinctBy { it.key },
+                deletedChallengeIds = json.optJSONArray("deletedChallengeIds").toStringList().distinct()
             )
         }.getOrElse { AppData() }
     }
@@ -61,6 +66,7 @@ class LocalStore(private val context: Context) {
             .put("challenges", JSONArray(data.challenges.map { it.toJson() }))
             .put("checkIns", JSONArray(data.checkIns.map { it.toJson() }))
             .put("confirmations", JSONArray(data.confirmations.map { it.toJson() }))
+            .put("deletedChallengeIds", JSONArray(data.deletedChallengeIds))
         runCatching {
             val tmp = File(context.filesDir, "online-challenges-data.tmp")
             tmp.writeText(json.toString(), Charsets.UTF_8)

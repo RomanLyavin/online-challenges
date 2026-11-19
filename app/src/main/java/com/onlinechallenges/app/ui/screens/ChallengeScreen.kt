@@ -18,7 +18,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -57,6 +59,7 @@ import com.onlinechallenges.app.data.PeriodState
 import com.onlinechallenges.app.ui.ActivityIcon
 import com.onlinechallenges.app.ui.AppViewModel
 import com.onlinechallenges.app.ui.DemoBadge
+import com.onlinechallenges.app.ui.DateField
 import com.onlinechallenges.app.ui.EmptyState
 import com.onlinechallenges.app.ui.GradientHeader
 import com.onlinechallenges.app.ui.InfoBanner
@@ -118,7 +121,10 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
     }
     val recent = ChallengeEngine.recentCheckIns(challenge, data.checkIns, 20)
     var actionError by remember(challenge.id) { mutableStateOf<String?>(null) }
+    var newEndDate by remember(challenge.id, challenge.endDate) { mutableStateOf(challenge.end) }
+    var showDeleteDialog by remember(challenge.id) { mutableStateOf(false) }
     val joined = profile != null && challenge.participantCodes.contains(profile.code)
+    val isOrganizer = !challenge.isDemo && challenge.isManagedBy(profile?.code)
 
     LazyColumn(
         contentPadding = PaddingValues(bottom = 34.dp)
@@ -326,6 +332,58 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = MaterialTheme.shapes.small
                             ) { Text("Скопировать код") }
+                        }
+                    }
+                }
+            }
+        }
+        if (isOrganizer) {
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+                    SectionTitle(
+                        "Управление челленджем",
+                        subtitle = "Доступно организатору ${challenge.creatorName}"
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            DateField(
+                                label = "Дата окончания",
+                                value = newEndDate,
+                                onDateSelected = { newEndDate = it },
+                                minDate = maxOf(challenge.start, LocalDate.now())
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = {
+                                    actionError = vm.updateChallengeEndDate(
+                                        challenge.id,
+                                        newEndDate.toString()
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.small
+                            ) { Text("Сохранить дату окончания") }
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { showDeleteDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.small,
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error
+                                )
+                            ) { Text("Удалить челлендж") }
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Удаление уберёт челлендж, его отметки и подтверждения. " +
+                                    "Загруженные файлы также удаляются из GitHub.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -590,6 +648,30 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                 modifier = Modifier.padding(horizontal = 20.dp)
             )
         }
+    }
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Удалить челлендж?") },
+            text = {
+                Text(
+                    "«${challenge.title}» и все его отметки будут удалены. " +
+                        "Это действие нельзя отменить."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        val error = vm.deleteChallenge(challenge.id)
+                        if (error == null) vm.back() else actionError = error
+                    }
+                ) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Отмена") }
+            }
+        )
     }
 }
 

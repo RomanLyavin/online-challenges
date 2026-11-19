@@ -41,6 +41,7 @@ import com.onlinechallenges.app.data.Challenge
 import com.onlinechallenges.app.data.ChallengeEngine
 import com.onlinechallenges.app.data.ChallengeStatus
 import com.onlinechallenges.app.data.Dates
+import com.onlinechallenges.app.data.normalizeChallenges
 import com.onlinechallenges.app.ui.AppViewModel
 import com.onlinechallenges.app.ui.ChallengeCard
 import com.onlinechallenges.app.ui.EmptyState
@@ -58,10 +59,11 @@ fun HomeScreen(vm: AppViewModel) {
     val syncState by vm.syncState.collectAsStateWithLifecycle()
     val profile = data.currentProfile()
     val today = LocalDate.now()
-    val myChallenges = data.challenges
+    val challenges = normalizeChallenges(data.challenges)
+    val myChallenges = challenges
         .filter { challenge -> profile != null && challenge.participantCodes.contains(profile.code) }
         .sortedWith(compareBy<Challenge> { it.status(today) == ChallengeStatus.FINISHED }.thenByDescending { it.endDate })
-    val available = data.challenges
+    val available = challenges
         .filter { challenge ->
             profile != null && !challenge.participantCodes.contains(profile.code) &&
                 challenge.status(today) != ChallengeStatus.FINISHED

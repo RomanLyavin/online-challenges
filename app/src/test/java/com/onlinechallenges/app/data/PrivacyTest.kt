@@ -126,11 +126,54 @@ class PrivacyTest {
         assertTrue(challenge.hasAccess("U-B"))
         assertFalse(challenge.hasAccess("U-C"))
         assertFalse(challenge.hasAccess(null))
+        assertTrue(challenge.hasAccess(challenge.creatorCode))
+        assertTrue(challenge.isManagedBy(challenge.creatorCode))
+        assertFalse(challenge.isManagedBy("U-B"))
 
         val public = challenge.copy(visibility = ChallengeVisibility.PUBLIC, privateKey = null)
         assertTrue(public.hasAccess("U-C"))
         assertTrue(public.hasAccess(null))
         assertNull(public.inviteCode())
+    }
+
+    @Test
+    fun `deleted private challenge is not restored from previous standings`() {
+        val stub = challenge(goals = emptyList(), privateKey = null, participants = listOf("U-A"))
+        val previous = JSONObject().put(
+            "challenges",
+            JSONArray(
+                listOf(
+                    JSONObject()
+                        .put("id", "ch-private")
+                        .put("title", "Секретный челлендж")
+                        .put("visibility", "PRIVATE")
+                        .put("participants", JSONArray(
+                            listOf(
+                                JSONObject()
+                                    .put("code", "U-A")
+                                    .put("name", "Анна")
+                                    .put("points", 7)
+                                    .put("maxPoints", 10)
+                                    .put("place", 1)
+                                    .put("medal", "🥇")
+                            )
+                        ))
+                )
+            )
+        )
+
+        val json = StandingsBuilder.build(
+            AppData(
+                profiles = profiles(),
+                challenges = listOf(stub),
+                deletedChallengeIds = listOf("ch-private")
+            ),
+            config,
+            today,
+            previous = previous
+        )
+
+        assertEquals(0, json.getJSONArray("challenges").length())
     }
 
     @Test

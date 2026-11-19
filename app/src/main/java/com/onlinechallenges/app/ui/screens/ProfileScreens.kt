@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onlinechallenges.app.data.Challenge
 import com.onlinechallenges.app.data.Gender
 import com.onlinechallenges.app.data.Profile
+import com.onlinechallenges.app.data.normalizeChallenges
 import com.onlinechallenges.app.ui.AppViewModel
 import com.onlinechallenges.app.ui.ChallengeCard
 import com.onlinechallenges.app.ui.DateField
@@ -182,7 +183,7 @@ fun SetupProfileScreen(vm: AppViewModel) {
 fun ProfileScreen(vm: AppViewModel) {
     val data by vm.data.collectAsStateWithLifecycle()
     val profile = data.currentProfile()
-    val myChallenges = data.challenges.filter { challenge ->
+    val myChallenges = normalizeChallenges(data.challenges).filter { challenge ->
         profile != null && challenge.participantCodes.contains(profile.code)
     }.sortedByDescending { it.startDate }
     val medals = profile?.medals.orEmpty()

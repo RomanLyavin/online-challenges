@@ -102,7 +102,7 @@ object ChallengeEngine {
         includeFuture: Boolean = true,
         confirmations: List<PeerConfirmation> = emptyList()
     ): List<ParticipantScore> {
-        val scores = challenge.participantCodes.map { code ->
+        val scores = challenge.participantCodes.distinct().map { code ->
             scoreParticipant(challenge, code, checkIns, profiles, today, includeFuture, confirmations)
         }
         return rankScores(challenge, scores, today)
@@ -117,7 +117,10 @@ object ChallengeEngine {
         includeFuture: Boolean = true,
         confirmations: List<PeerConfirmation> = emptyList()
     ): ParticipantScore {
-        val checkIns = allCheckIns.filter { it.challengeId == challenge.id && it.userCode == code }
+        val checkIns = allCheckIns
+            .filter { it.challengeId == challenge.id && it.userCode == code }
+            .sortedByDescending { it.updatedAt }
+            .distinctBy { it.date }
         val periods = when (challenge.mode) {
             ChallengeMode.DAILY -> dailyPeriods(challenge, checkIns, today, includeFuture, confirmations)
             ChallengeMode.INTERVAL -> intervalPeriods(challenge, checkIns, today, includeFuture, confirmations)
@@ -440,6 +443,7 @@ object ChallengeEngine {
         limit: Int = 8
     ): List<CheckIn> = checkIns
         .filter { it.challengeId == challenge.id }
+        .distinctBy { it.id }
         .sortedByDescending { it.date + it.updatedAt }
         .take(limit)
 
