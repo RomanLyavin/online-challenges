@@ -61,6 +61,7 @@ fun CatalogScreen(vm: AppViewModel) {
     val iconBusy by vm.activityIconBusy.collectAsStateWithLifecycle()
     var showAdd by remember { mutableStateOf(false) }
     var pendingIconActivity by remember { mutableStateOf<String?>(null) }
+    var iconDialogActivity by remember { mutableStateOf<ActivityType?>(null) }
     val activities = data.activities.sortedWith(
         compareByDescending<ActivityType> { it.isDefault }.thenBy { it.name }
     )
@@ -75,7 +76,7 @@ fun CatalogScreen(vm: AppViewModel) {
     ) {
         item {
             InfoBanner(
-                text = "Каталог общий. Добавьте свою активность — после синхронизации она появится у всех участников. Иконку любой активности можно заменить своим фото: оно сохранится в общем каталоге и будет видно всем после синхронизации."
+                text = "Каталог общий. Добавьте свою активность — после синхронизации она появится у всех участников. Чтобы заменить иконку, нажмите на неё или на название активности: там же можно вернуть стандартную иконку. Своё фото сохранится в общем каталоге и будет видно всем после синхронизации."
             )
             Spacer(Modifier.height(14.dp))
             OutlinedButton(
@@ -97,10 +98,7 @@ fun CatalogScreen(vm: AppViewModel) {
             ActivityRow(
                 activity = activity,
                 iconBusy = iconBusy == activity.id,
-                onPickIcon = {
-                    pendingIconActivity = activity.id
-                    iconPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }
+                onIconClick = { iconDialogActivity = activity }
             )
         }
         item {
@@ -111,6 +109,22 @@ fun CatalogScreen(vm: AppViewModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+
+    iconDialogActivity?.let { activity ->
+        IconDialog(
+            activity = activity,
+            onDismiss = { iconDialogActivity = null },
+            onPickPhoto = {
+                iconDialogActivity = null
+                pendingIconActivity = activity.id
+                iconPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onReset = {
+                iconDialogActivity = null
+                vm.resetActivityIcon(activity.id)
+            }
+        )
     }
 
     if (showAdd) {
@@ -129,7 +143,7 @@ fun CatalogScreen(vm: AppViewModel) {
 private fun ActivityRow(
     activity: ActivityType,
     iconBusy: Boolean,
-    onPickIcon: () -> Unit
+    onIconClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -143,6 +157,8 @@ private fun ActivityRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
+                onClick = onIconClick,
+                enabled = !iconBusy,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.size(48.dp)
@@ -151,18 +167,25 @@ private fun ActivityRow(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    ActivityIcon(
-                        activityId = activity.id,
-                        emoji = activity.emoji,
-                        iconPath = activity.iconPath,
-                        size = 34.dp,
-                        textStyle = MaterialTheme.typography.titleLarge
-                    )
+                    if (iconBusy) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                    } else {
+                        ActivityIcon(
+                            activityId = activity.id,
+                            emoji = activity.emoji,
+                            iconPath = activity.iconPath,
+                            size = 34.dp,
+                            textStyle = MaterialTheme.typography.titleLarge
+                        )
+                    }
                 }
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable(enabled = !iconBusy, onClick = onIconClick)
+                ) {
                     Text(activity.name, style = MaterialTheme.typography.titleMedium)
                     if (activity.isDefault) {
                         Spacer(Modifier.width(6.dp))
@@ -184,22 +207,73 @@ private fun ActivityRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(activity.proofType.shortLabel, style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(4.dp))
-                if (iconBusy) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    TextButton(
-                        onClick = onPickIcon,
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                    ) {
-                        Text("📷 Фото", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            }
         }
     }
+}
+
+@Composable
+private fun IconDialog(
+    activity: ActivityType,
+    onDismiss: () -> Unit,
+    onPickPhoto: () -> Unit,
+    onReset: () -> Unit
+) {
+    val hasCustomIcon = !activity.iconPath.isNullOrBlank() || !activity.iconLocalPath.isNullOrBlank()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Иконка «${activity.name}»") },
+        text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.size(46.dp)
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            ActivityIcon(
+                                activityId = activity.id,
+                                emoji = activity.emoji,
+                                iconPath = activity.iconPath,
+                                size = 32.dp,
+                                textStyle = MaterialTheme.typography.titleLarge
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        if (hasCustomIcon) {
+                            "Сейчас стоит ваше фото."
+                        } else {
+                            "Сейчас используется стандартная иконка."
+                        },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Загрузите своё фото — оно сохранится в общем каталоге после синхронизации. " +
+                        "Стандартную иконку можно вернуть в любой момент.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onPickPhoto) { Text("Загрузить фото") }
+        },
+        dismissButton = {
+            Row {
+                if (hasCustomIcon) {
+                    TextButton(onClick = onReset) { Text("Стандартная") }
+                }
+                TextButton(onClick = onDismiss) { Text("Закрыть") }
+            }
+        }
+    )
 }
 
 @Composable

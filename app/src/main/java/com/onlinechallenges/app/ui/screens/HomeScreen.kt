@@ -104,13 +104,32 @@ fun HomeScreen(vm: AppViewModel) {
                                 color = Color.White
                             )
                         }
-                        UserAvatar(profile = profile, model = vm.avatarModel(profile), size = 52.dp)
+                        UserAvatar(
+                            profile = profile,
+                            model = vm.avatarModel(profile),
+                            size = 52.dp,
+                            onClick = { vm.selectTab(Screen.ProfileScreen) }
+                        )
                     }
                     Spacer(Modifier.height(18.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HomeStat("${active.size}", "активных", Modifier.weight(1f))
+                        HomeStat(
+                            "${active.size}",
+                            "активных",
+                            Modifier.weight(1f),
+                            onClick = if (active.size == 1) {
+                                { vm.openChallenge(active.first().id) }
+                            } else {
+                                null
+                            }
+                        )
                         HomeStat("$totalPoints", "баллов", Modifier.weight(1f))
-                        HomeStat("${medals.size}", "медалей", Modifier.weight(1f))
+                        HomeStat(
+                            "${medals.size}",
+                            "медалей",
+                            Modifier.weight(1f),
+                            onClick = { vm.selectTab(Screen.ProfileScreen) }
+                        )
                     }
                     if (config.token.isBlank()) {
                         Spacer(Modifier.height(14.dp))
@@ -314,15 +333,30 @@ private fun PrivateJoinCard(vm: AppViewModel) {
 }
 
 @Composable
-private fun HomeStat(value: String, label: String, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        color = Color.White.copy(alpha = 0.15f),
-        shape = MaterialTheme.shapes.medium
-    ) {
+private fun HomeStat(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
+) {
+    val content: @Composable () -> Unit = {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(value, style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.ExtraBold)
             Text(label, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
         }
+    }
+    if (onClick != null) {
+        Surface(
+            onClick = onClick,
+            modifier = modifier,
+            color = Color.White.copy(alpha = 0.15f),
+            shape = MaterialTheme.shapes.medium
+        ) { content() }
+    } else {
+        Surface(
+            modifier = modifier,
+            color = Color.White.copy(alpha = 0.15f),
+            shape = MaterialTheme.shapes.medium
+        ) { content() }
     }
 }

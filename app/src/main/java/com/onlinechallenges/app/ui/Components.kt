@@ -99,13 +99,15 @@ fun UserAvatar(
     profile: Profile?,
     model: Any?,
     modifier: Modifier = Modifier,
-    size: Dp = 48.dp
+    size: Dp = 48.dp,
+    onClick: (() -> Unit)? = null
 ) {
     Box(
         modifier = modifier
             .size(size)
             .clip(CircleShape)
-            .background(BrandGradient),
+            .background(BrandGradient)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center
     ) {
         Text(

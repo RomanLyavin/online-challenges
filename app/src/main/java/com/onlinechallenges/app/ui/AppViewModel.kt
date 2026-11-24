@@ -313,6 +313,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Возвращает стандартную (эмодзи) иконку активности и убирает своё фото
+     * из общего каталога. Сброс синхронизируется как обычное изменение.
+     */
+    fun resetActivityIcon(activityId: String) {
+        if (activityIconBusy.value != null) return
+        val activity = repository.snapshot().activities.firstOrNull { it.id == activityId } ?: return
+        if (activity.iconPath.isNullOrBlank() && activity.iconLocalPath.isNullOrBlank()) {
+            uiMessage.value = "У «${activity.name}» уже стандартная иконка"
+            return
+        }
+        repository.update { data ->
+            data.copy(activities = data.activities.map {
+                if (it.id == activityId) {
+                    it.copy(iconPath = null, iconLocalPath = null, updatedAt = isoNow())
+                } else {
+                    it
+                }
+            })
+        }
+        uiMessage.value = "Иконка «${activity.name}» снова стандартная"
+        autoSyncIfEnabled()
+    }
+
     fun activityIconModel(activityId: String, fallbackPath: String? = null): Any? {
         val activity = repository.snapshot().activities.firstOrNull { it.id == activityId }
         val local = repository.fileFor(activity?.iconLocalPath)
