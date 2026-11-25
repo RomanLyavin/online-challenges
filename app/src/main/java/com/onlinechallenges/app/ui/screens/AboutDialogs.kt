@@ -73,7 +73,7 @@ fun AboutDialog(
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "При разработке использована ИИ-модель OpenCode.",
+                    "Сделано с помощью разных Ai агентов (через OpenCode, Strata)",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

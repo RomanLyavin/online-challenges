@@ -63,6 +63,7 @@ import com.onlinechallenges.app.data.ChallengeEngine
 import com.onlinechallenges.app.data.ChallengeGoal
 import com.onlinechallenges.app.data.ChallengeStatus
 import com.onlinechallenges.app.data.ChallengeVisibility
+import com.onlinechallenges.app.data.shouldShowChallengeCardScore
 import com.onlinechallenges.app.data.CheckIn
 import com.onlinechallenges.app.data.Dates
 import com.onlinechallenges.app.data.Gender
@@ -338,7 +339,7 @@ fun ChallengeCard(
                     DemoBadge()
                 }
                 Spacer(Modifier.weight(1f))
-                if (myScore != null && myScore.points > 0) {
+                if (myScore != null && shouldShowChallengeCardScore(challenge.mode, myScore.points)) {
                     Text(
                         text = "${myScore.points} б.",
                         style = MaterialTheme.typography.titleMedium,

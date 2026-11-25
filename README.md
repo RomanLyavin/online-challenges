@@ -9,7 +9,7 @@ Android-приложение и публичный сайт для челлен�
 места.
 
 - Сайт: <https://romanlyavin.github.io/online-challenges/>
-- APK: [OnlineChallenges-1.4.0.apk](OnlineChallenges-1.4.0.apk) · [последний релиз](https://github.com/RomanLyavin/online-challenges/releases/latest)
+- APK: [OnlineChallenges-1.4.1.apk](OnlineChallenges-1.4.1.apk) · [последний релиз](https://github.com/RomanLyavin/online-challenges/releases/latest)
 - Пакет: `com.onlinechallenges.app`
 - Минимальная версия Android: 8.0 (API 26), целевая — API 35
 
@@ -202,6 +202,13 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 
 Готовый APK: `app\build\outputs\apk\release\app-release.apk`.
 
+## Изменения 1.4.1
+
+- В карточке челленджа на главной скрыта плашка с баллами для режима «Каждый
+  день»: баллы там заданы режимом по умолчанию, а освободившееся место уходит
+  под название и бейджи.
+- В разделе «О программе» обновлён текст про используемые ИИ-агенты.
+
 ## Изменения 1.4.0
 
 - Временные ошибки GitHub (500/502/503/504 и 429) при синхронизации повторяются
@@ -236,13 +243,13 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 - Организатор может изменить дату окончания и удалить челлендж.
 - Удалённые челленджи и их отметки не возвращаются при синхронизации.
 
-## Проверка APK 1.4.0
+## Проверка APK 1.4.1
 
 - Размер: 9 390 315 байт (8,96 МиБ)
-- SHA-256: `481FFAEC6EC254293FC4E72BA90B6494D90CD6C9266CB3696B46BE2DCE429FE4`
+- SHA-256: `954EF30C557E455AC896B6D0321F6EBE2B30EF3D8ECABFA488A72F865A8DDB80`
 - Сертификат подписи SHA-256: `9fc6a9cf0ca53fbb668b21f6986ebec27c929a29975903d8169308aa08aee2d8`
 - Подпись APK v2, выравнивание 4 байта
-- Пакет `com.onlinechallenges.app`, versionCode 7, versionName 1.4.0, targetSdk 35
+- Пакет `com.onlinechallenges.app`, versionCode 8, versionName 1.4.1, targetSdk 35
 
 ## Ограничения
 
