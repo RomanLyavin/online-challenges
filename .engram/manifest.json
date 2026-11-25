@@ -16,6 +16,14 @@
       "sessions": 1,
       "memories": 1,
       "prompts": 0
+    },
+    {
+      "id": "cee68554",
+      "created_by": "lyrv",
+      "created_at": "2026-11-25T21:16:25.1838898Z",
+      "sessions": 1,
+      "memories": 3,
+      "prompts": 0
     }
   ]
 }
