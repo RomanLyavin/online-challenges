@@ -324,7 +324,7 @@ fun VerifyScreen(vm: AppViewModel) {
         Text("Подтвердите email", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(6.dp))
         Text(
-            "Мы отправили ссылку на $email. Откройте письмо, перейдите по ссылке и вернитесь в приложение.",
+            "Мы отправили ссылку на $email. Откройте письмо на телефоне с установленным приложением.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -337,6 +337,13 @@ fun VerifyScreen(vm: AppViewModel) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     "Код больше не показывается на экране: подтверждение приходит ссылкой на настоящую почту.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Важно: открывайте письмо только на телефоне. С компьютера ссылка не откроет приложение. " +
+                        "Если браузер покажет страницу «See Other», нажмите ссылку на ней.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
@@ -395,7 +402,12 @@ fun ForgotPasswordScreen(vm: AppViewModel) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
+        InfoBanner(
+            text = "Открывайте письмо только на телефоне — с компьютера ссылка не откроет приложение. " +
+                "Запросите сброс и перейдите по ссылке на одном и том же телефоне."
+        )
+        Spacer(Modifier.height(16.dp))
         OutlinedTextField(
             value = email,
             onValueChange = {
@@ -427,9 +439,9 @@ fun ForgotPasswordScreen(vm: AppViewModel) {
         if (sent) {
             Spacer(Modifier.height(16.dp))
             InfoBanner(
-                text = "Откройте ссылку из письма на телефоне с установленным приложением: откроется экран нового пароля. " +
-                    "Если вместо приложения появилась пустая страница Supabase, проверьте в настройках проекта " +
-                    "Authentication → URL Configuration → Redirect URLs запись com.onlinechallenges.app://auth."
+                text = "Откройте ссылку из письма на том же телефоне, где нажали «Забыл пароль»: откроется экран нового пароля. " +
+                    "Если браузер покажет пустую страницу или «See Other», нажмите ссылку на ней. " +
+                    "С компьютера приложение не откроется."
             )
         }
         TextButton(
