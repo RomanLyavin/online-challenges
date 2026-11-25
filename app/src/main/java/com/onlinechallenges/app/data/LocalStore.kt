@@ -263,12 +263,19 @@ class AuthManager(private val repo: AppRepository) {
         name: String,
         birthDate: String,
         gender: Gender,
-        avatarLocalPath: String? = null
+        avatarLocalPath: String? = null,
+        email: String? = null,
+        emailHash: String? = null,
+        emailPending: String? = null
     ): AuthResult {
         val state = repo.snapshot()
         val current = state.currentProfile() ?: return AuthResult.Error("Профиль не найден")
         if (name.isBlank()) return AuthResult.Error("Введите имя")
         if (birthDate.isBlank()) return AuthResult.Error("Укажите дату рождения")
+        val normalizedEmail = email?.let { EmailHasher.normalize(it) }
+        if (normalizedEmail != null && !isEmailValid(normalizedEmail)) {
+            return AuthResult.Error("Введите корректный email")
+        }
         val avatarChanged = avatarLocalPath != null && avatarLocalPath != current.avatarLocalPath
         val updated = current.copy(
             name = name.trim(),
@@ -276,9 +283,28 @@ class AuthManager(private val repo: AppRepository) {
             gender = gender,
             avatarLocalPath = avatarLocalPath ?: current.avatarLocalPath,
             avatarRepoPath = if (avatarChanged) null else current.avatarRepoPath,
-            updatedAt = isoNow()
+            updatedAt = isoNow(),
+            email = normalizedEmail ?: current.email,
+            emailHash = emailHash ?: current.emailHash.ifBlank {
+                normalizedEmail?.let { EmailHasher.hash(it) } ?: ""
+            },
+            pendingEmail = emailPending ?: current.pendingEmail
         )
-        repo.update { it.withProfile(updated) }
+        repo.update { currentState ->
+            val accounts = if (normalizedEmail != null && !normalizedEmail.equals(current.email, ignoreCase = true)) {
+                currentState.accounts.map { account ->
+                    if (account.code == current.code) {
+                        account.copy(
+                            email = normalizedEmail,
+                            emailHash = updated.emailHash,
+                            provider = current.provider,
+                            supabaseUserId = current.supabaseUserId
+                        )
+                    } else account
+                }
+            } else currentState.accounts
+            currentState.copy(accounts = accounts).withProfile(updated)
+        }
         return AuthResult.Success
     }
 

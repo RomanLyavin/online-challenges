@@ -12,6 +12,7 @@ import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.auth.user.UserInfo
 import io.github.jan.supabase.createSupabaseClient
+import java.net.URLDecoder
 
 /** Supabase Auth поверх Publishable key. Секретные ключи в приложение не попадают. */
 object SupabaseAuth {
@@ -49,24 +50,33 @@ object SupabaseAuth {
     var recoveryRedirectPending: Boolean = false
         private set
 
+    @Volatile
+    var emailChangePending: Boolean = false
+        private set
+
     fun prepare(intent: Intent) {
-        if (isRecoveryRedirect(intent.dataString)) recoveryRedirectPending = true
+        val raw = intent.dataString
+        if (isRecoveryRedirect(raw)) recoveryRedirectPending = true
+        if (isEmailChangeRedirect(raw)) emailChangePending = true
     }
 
     fun clearRecoveryFlag() {
         recoveryRedirectPending = false
     }
 
+    fun clearEmailChangeFlag() {
+        emailChangePending = false
+    }
+
     fun currentUser(): UserInfo? = clientOrNull?.auth?.currentUserOrNull()
 
     fun isSignedIn(): Boolean = clientOrNull?.auth?.currentSessionOrNull() != null
 
-    suspend fun signUp(email: String, password: String) {
+    suspend fun signUp(email: String, password: String): UserInfo? =
         client.auth.signUpWith(Email, redirectUrl = REDIRECT_URL) {
             this.email = email
             this.password = password
         }
-    }
 
     suspend fun signIn(email: String, password: String) {
         client.auth.signInWith(Email) {
@@ -87,6 +97,15 @@ object SupabaseAuth {
         client.auth.updateUser { this.password = password }
     }
 
+    /** Возвращает пользователя: если подтверждение не требуется, newEmail пуст. */
+    suspend fun updateEmail(email: String): UserInfo =
+        client.auth.updateUser(redirectUrl = REDIRECT_URL) { this.email = email }
+
+    /** Поддержка писем с token_hash, когда ссылка ведёт сразу в приложение. */
+    suspend fun verifyEmailOtp(type: OtpType.Email, tokenHash: String) {
+        client.auth.verifyEmailOtp(type, tokenHash)
+    }
+
     suspend fun signOut() {
         clientOrNull?.auth?.signOut()
     }
@@ -96,7 +115,25 @@ object SupabaseAuth {
         clientOrNull?.handleDeeplinks(intent)
     }
 
-    /** Ссылка сброса пароля приходит с type=recovery во фрагменте или query. */
-    fun isRecoveryRedirect(raw: String?): Boolean =
-        !raw.isNullOrBlank() && raw.contains("type=recovery", ignoreCase = true)
+    /** Ссылка сброса пароля приходит с type=recovery в query или фрагменте. */
+    fun isRecoveryRedirect(raw: String?): Boolean = isType(raw, "recovery")
+
+    fun isEmailChangeRedirect(raw: String?): Boolean = isType(raw, "email_change")
+
+    fun isEmailConfirmationRedirect(raw: String?): Boolean =
+        isType(raw, "signup") || isType(raw, "email") || isType(raw, "magiclink")
+
+    private fun isType(raw: String?, type: String): Boolean =
+        paramValue(raw, "type").equals(type, ignoreCase = true)
+
+    /** Читает параметр из query или фрагмента — Supabase использует оба варианта. */
+    fun paramValue(raw: String?, key: String): String? {
+        if (raw.isNullOrBlank()) return null
+        val regex = Regex("(?:[?&#]|^)" + Regex.escape(key) + "=([^&#]+)")
+        val value = regex.find(raw)?.groupValues?.getOrNull(1) ?: return null
+        return runCatching { URLDecoder.decode(value, "UTF-8") }.getOrDefault(value)
+    }
+
+    fun redirectError(raw: String?): String? =
+        paramValue(raw, "error_description") ?: paramValue(raw, "error")
 }

@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -86,6 +87,7 @@ fun SetupProfileScreen(vm: AppViewModel) {
         mutableStateOf(profile?.birthDate?.takeIf { it.isNotBlank() } ?: LocalDate.now().minusYears(25).toString())
     }
     var gender by remember(profile?.code) { mutableStateOf(profile?.gender ?: Gender.UNSPECIFIED) }
+    var email by remember(profile?.email) { mutableStateOf(profile?.email.orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
     val avatarModel = avatarPath?.let { File(it) } ?: vm.avatarModel(profile)
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -103,7 +105,7 @@ fun SetupProfileScreen(vm: AppViewModel) {
             Text("Заполните профиль", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Это увидят другие участники. Email и пароль остаются только на устройстве.",
+                "Это увидят другие участники. Email хранится на устройстве: в общие данные уходит только его хэш.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -145,6 +147,14 @@ fun SetupProfileScreen(vm: AppViewModel) {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it.trim(); error = null },
+            label = { Text("Email") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(12.dp))
         DateField(
             label = "Дата рождения",
             value = LocalDate.parse(birthDate),
@@ -162,7 +172,7 @@ fun SetupProfileScreen(vm: AppViewModel) {
             Spacer(Modifier.height(8.dp))
         }
         Button(
-            onClick = { error = vm.saveProfile(name, birthDate, gender) },
+            onClick = { error = vm.saveProfile(name, birthDate, gender, email) },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp),
@@ -171,6 +181,12 @@ fun SetupProfileScreen(vm: AppViewModel) {
         if (editing) {
             Spacer(Modifier.height(8.dp))
             TextButton(onClick = { vm.back() }, modifier = Modifier.fillMaxWidth()) { Text("Отмена") }
+        }
+        if (profile?.pendingEmail?.isNotBlank() == true) {
+            Spacer(Modifier.height(12.dp))
+            InfoBanner(
+                text = "На ${profile.pendingEmail} отправлено письмо. Новый email вступит в силу после перехода по ссылке."
+            )
         }
         if (profile != null) {
             Spacer(Modifier.height(18.dp))
@@ -304,10 +320,38 @@ fun ProfileScreen(vm: AppViewModel) {
                         Text("Профиль", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(8.dp))
                         val emailValue = profile?.email.orEmpty()
-                        ProfileInfoRow(
-                            "Email",
-                            emailValue.ifBlank { "не добавлен — пароль не восстановить" }
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { vm.beginProfileEdit() },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Email",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                emailValue.ifBlank { "не добавлен — нажмите, чтобы указать" },
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = "Изменить email",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        if (profile?.pendingEmail?.isNotBlank() == true) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Ожидает подтверждения: ${profile.pendingEmail}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         ProfileInfoRow("Дата рождения", formatBirthDateSafe(profile?.birthDate))
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))

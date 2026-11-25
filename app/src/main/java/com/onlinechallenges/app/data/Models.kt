@@ -198,7 +198,9 @@ data class Profile(
     val email: String = "",
     val emailHash: String = "",
     val provider: String = "local",
-    val supabaseUserId: String = ""
+    val supabaseUserId: String = "",
+    /** Новый email ожидает подтверждения по ссылке из письма. */
+    val pendingEmail: String = ""
 ) {
     val isComplete: Boolean
         get() = name.isNotBlank() && birthDate.isNotBlank() && gender != Gender.UNSPECIFIED
@@ -226,6 +228,7 @@ data class Profile(
         .put("emailHash", emailHash.ifBlank { if (email.isBlank()) "" else EmailHasher.hash(email) })
         .put("provider", provider)
         .put("supabaseUserId", supabaseUserId)
+        .put("pendingEmail", pendingEmail)
 
     /** В общие данные попадает только хэш email, сам адрес — никогда. */
     fun toSyncJson(): JSONObject = JSONObject()
@@ -257,7 +260,8 @@ data class Profile(
             email = json.optString("email", ""),
             emailHash = json.optString("emailHash", ""),
             provider = json.optString("provider", "local"),
-            supabaseUserId = json.optString("supabaseUserId", "")
+            supabaseUserId = json.optString("supabaseUserId", ""),
+            pendingEmail = json.optString("pendingEmail", "")
         )
     }
 }

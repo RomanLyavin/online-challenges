@@ -375,6 +375,7 @@ fun VerifyScreen(vm: AppViewModel) {
 fun ForgotPasswordScreen(vm: AppViewModel) {
     val remoteError by vm.authError.collectAsStateWithLifecycle()
     val busy by vm.authBusy.collectAsStateWithLifecycle()
+    val sent by vm.passwordResetSent.collectAsStateWithLifecycle()
     var email by remember { mutableStateOf("") }
     var localError by remember { mutableStateOf<String?>(null) }
     val error = localError ?: remoteError
@@ -423,6 +424,14 @@ fun ForgotPasswordScreen(vm: AppViewModel) {
                 .height(50.dp),
             shape = MaterialTheme.shapes.small
         ) { Text("Отправить ссылку") }
+        if (sent) {
+            Spacer(Modifier.height(16.dp))
+            InfoBanner(
+                text = "Откройте ссылку из письма на телефоне с установленным приложением: откроется экран нового пароля. " +
+                    "Если вместо приложения появилась пустая страница Supabase, проверьте в настройках проекта " +
+                    "Authentication → URL Configuration → Redirect URLs запись com.onlinechallenges.app://auth."
+            )
+        }
         TextButton(
             onClick = { vm.back() },
             modifier = Modifier.fillMaxWidth()

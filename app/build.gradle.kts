@@ -38,8 +38,8 @@ android {
         applicationId = "com.onlinechallenges.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.5.0"
+        versionCode = 10
+        versionName = "1.5.1"
         buildConfigField("String", "GITHUB_TOKEN_B64", "\"$embeddedGitHubTokenB64\"")
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"$supabasePublishableKey\"")
