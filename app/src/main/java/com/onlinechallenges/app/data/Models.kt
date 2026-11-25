@@ -2,9 +2,11 @@ package com.onlinechallenges.app.data
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 enum class Gender(val label: String) {
     MALE("Мужской"),
@@ -65,14 +67,30 @@ enum class ChallengeStatus(val label: String) {
     }
 }
 
+/** Публичный идентификатор email: сам адрес никогда не попадает в общие JSON. */
+object EmailHasher {
+    fun normalize(email: String): String = email.trim().lowercase(Locale.ROOT)
+
+    fun hash(email: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256")
+            .digest(("online-challenges:email:" + normalize(email)).toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+}
+
 data class UserAccount(
     val id: String,
     val email: String,
     val passwordHash: String,
     val salt: String,
     val code: String,
-    val createdAt: String
+    val createdAt: String,
+    val provider: String = "local",
+    val supabaseUserId: String = "",
+    val emailHash: String = ""
 ) {
+    val isSupabase: Boolean get() = provider == "supabase"
+
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
         .put("email", email)
@@ -80,16 +98,27 @@ data class UserAccount(
         .put("salt", salt)
         .put("code", code)
         .put("createdAt", createdAt)
+        .put("provider", provider)
+        .put("supabaseUserId", supabaseUserId)
+        .put("emailHash", emailHash.ifBlank { EmailHasher.hash(email) })
 
     companion object {
-        fun fromJson(json: JSONObject): UserAccount = UserAccount(
-            id = json.getString("id"),
-            email = json.getString("email"),
-            passwordHash = json.getString("passwordHash"),
-            salt = json.getString("salt"),
-            code = json.getString("code"),
-            createdAt = json.optString("createdAt", isoNow())
-        )
+        fun fromJson(json: JSONObject): UserAccount {
+            val emailValue = json.getString("email")
+            return UserAccount(
+                id = json.getString("id"),
+                email = emailValue,
+                passwordHash = json.optString("passwordHash", ""),
+                salt = json.optString("salt", ""),
+                code = json.getString("code"),
+                createdAt = json.optString("createdAt", isoNow()),
+                provider = json.optString("provider", "local"),
+                supabaseUserId = json.optString("supabaseUserId", ""),
+                emailHash = json.optString("emailHash", "").ifBlank {
+                    if (emailValue.isBlank()) "" else EmailHasher.hash(emailValue)
+                }
+            )
+        }
     }
 }
 
@@ -165,7 +194,11 @@ data class Profile(
     val avatarRepoPath: String? = null,
     val medals: List<Medal> = emptyList(),
     val updatedAt: String = isoNow(),
-    val isDemo: Boolean = false
+    val isDemo: Boolean = false,
+    val email: String = "",
+    val emailHash: String = "",
+    val provider: String = "local",
+    val supabaseUserId: String = ""
 ) {
     val isComplete: Boolean
         get() = name.isNotBlank() && birthDate.isNotBlank() && gender != Gender.UNSPECIFIED
@@ -189,7 +222,12 @@ data class Profile(
         .put("medals", JSONArray(medals.map { it.toJson() }))
         .put("updatedAt", updatedAt)
         .put("isDemo", isDemo)
+        .put("email", email)
+        .put("emailHash", emailHash.ifBlank { if (email.isBlank()) "" else EmailHasher.hash(email) })
+        .put("provider", provider)
+        .put("supabaseUserId", supabaseUserId)
 
+    /** В общие данные попадает только хэш email, сам адрес — никогда. */
     fun toSyncJson(): JSONObject = JSONObject()
         .put("code", code)
         .put("name", name)
@@ -198,6 +236,12 @@ data class Profile(
         .put("avatarRepoPath", avatarRepoPath ?: JSONObject.NULL)
         .put("medals", JSONArray(medals.map { it.toJson() }))
         .put("updatedAt", updatedAt)
+        .put(
+            "emailHash",
+            if (emailHash.isNotBlank()) emailHash
+            else if (email.isNotBlank()) EmailHasher.hash(email)
+            else JSONObject.NULL
+        )
 
     companion object {
         fun fromJson(json: JSONObject): Profile = Profile(
@@ -209,7 +253,11 @@ data class Profile(
             avatarRepoPath = json.optStringOrNull("avatarRepoPath"),
             medals = json.optJSONArray("medals").toList { Medal.fromJson(it) },
             updatedAt = json.optString("updatedAt", isoNow()),
-            isDemo = json.optBoolean("isDemo", false)
+            isDemo = json.optBoolean("isDemo", false),
+            email = json.optString("email", ""),
+            emailHash = json.optString("emailHash", ""),
+            provider = json.optString("provider", "local"),
+            supabaseUserId = json.optString("supabaseUserId", "")
         )
     }
 }
@@ -633,6 +681,7 @@ data class PeerConfirmation(
 data class AppData(
     val accounts: List<UserAccount> = emptyList(),
     val pending: PendingVerification? = null,
+    val pendingEmail: String? = null,
     val sessionCode: String? = null,
     val profiles: List<Profile> = emptyList(),
     val activities: List<ActivityType> = defaultActivities(),

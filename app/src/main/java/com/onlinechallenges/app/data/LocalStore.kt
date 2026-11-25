@@ -21,6 +21,7 @@ class LocalStore(private val context: Context) {
             AppData(
                 accounts = json.optJSONArray("accounts").toList { UserAccount.fromJson(it) },
                 pending = json.optJSONObject("pending")?.let { PendingVerification.fromJson(it) },
+                pendingEmail = json.optStringOrNull("pendingEmail"),
                 sessionCode = json.optStringOrNull("sessionCode"),
                 profiles = json.optJSONArray("profiles").toList { Profile.fromJson(it) },
                 activities = mergeActivities(activities),
@@ -60,6 +61,7 @@ class LocalStore(private val context: Context) {
             .put("version", 1)
             .put("accounts", JSONArray(data.accounts.map { it.toJson() }))
             .put("pending", data.pending?.toJson() ?: JSONObject.NULL)
+            .put("pendingEmail", data.pendingEmail ?: JSONObject.NULL)
             .put("sessionCode", data.sessionCode ?: JSONObject.NULL)
             .put("profiles", JSONArray(data.profiles.map { it.toJson() }))
             .put("activities", JSONArray(data.activities.map { it.toJson() }))
@@ -128,22 +130,46 @@ sealed interface AuthResult {
 
 class AuthManager(private val repo: AppRepository) {
     fun register(email: String, password: String): AuthResult {
-        val normalized = email.trim().lowercase()
+        val normalized = EmailHasher.normalize(email)
         if (!isEmailValid(normalized)) return AuthResult.Error("Введите корректный email")
         if (password.length < 6) return AuthResult.Error("Пароль должен быть не короче 6 символов")
-        if (repo.snapshot().accounts.any { it.email.equals(normalized, ignoreCase = true) }) {
+        val state = repo.snapshot()
+        if (state.accounts.any { it.email.equals(normalized, ignoreCase = true) }) {
             return AuthResult.Error("Аккаунт с таким email уже зарегистрирован")
         }
         val salt = PasswordHasher.newSalt()
-        val pending = PendingVerification(
+        val userCode = VerificationCodes.newUserCode(
+            state.accounts.map { it.code }.toSet() + state.profiles.map { it.code }.toSet()
+        )
+        val emailHash = EmailHasher.hash(normalized)
+        val account = UserAccount(
+            id = java.util.UUID.randomUUID().toString(),
             email = normalized,
             passwordHash = PasswordHasher.hash(password, salt),
             salt = salt,
-            code = VerificationCodes.newCode(),
-            expiresAt = java.time.Instant.now().plusSeconds(15 * 60).toString()
+            code = userCode,
+            createdAt = isoNow(),
+            provider = "local",
+            emailHash = emailHash
         )
-        repo.update { it.copy(pending = pending) }
-        // Демо-режим: код не отправляется письмом, а показывается на экране подтверждения.
+        val displayName = normalized.substringBefore("@").replaceFirstChar { it.uppercase() }
+        val profile = Profile(
+            code = userCode,
+            name = displayName.ifBlank { "Участник" },
+            email = normalized,
+            emailHash = emailHash,
+            provider = "local",
+            updatedAt = isoNow()
+        )
+        repo.update {
+            it.copy(
+                accounts = it.accounts + account,
+                profiles = it.profiles + profile,
+                pending = null,
+                pendingEmail = null,
+                sessionCode = userCode
+            )
+        }
         return AuthResult.Success
     }
 
@@ -165,19 +191,25 @@ class AuthManager(private val repo: AppRepository) {
         if (state.accounts.any { it.email.equals(pending.email, ignoreCase = true) }) {
             return AuthResult.Error("Аккаунт уже существует — войдите")
         }
-        val userCode = VerificationCodes.newUserCode()
+        val userCode = VerificationCodes.newUserCode(
+            state.accounts.map { it.code }.toSet() + state.profiles.map { it.code }.toSet()
+        )
+        val emailHash = EmailHasher.hash(pending.email)
         val account = UserAccount(
             id = java.util.UUID.randomUUID().toString(),
             email = pending.email,
             passwordHash = pending.passwordHash,
             salt = pending.salt,
             code = userCode,
-            createdAt = isoNow()
+            createdAt = isoNow(),
+            emailHash = emailHash
         )
         val displayName = pending.email.substringBefore("@").replaceFirstChar { it.uppercase() }
         val profile = Profile(
             code = userCode,
             name = displayName.ifBlank { "Участник" },
+            email = pending.email,
+            emailHash = emailHash,
             updatedAt = isoNow()
         )
         repo.update {
@@ -185,6 +217,7 @@ class AuthManager(private val repo: AppRepository) {
                 accounts = it.accounts + account,
                 profiles = it.profiles + profile,
                 pending = null,
+                pendingEmail = null,
                 sessionCode = userCode
             )
         }
@@ -192,13 +225,29 @@ class AuthManager(private val repo: AppRepository) {
     }
 
     fun login(email: String, password: String): AuthResult {
-        val normalized = email.trim().lowercase()
-        val account = repo.snapshot().accounts.firstOrNull { it.email.equals(normalized, ignoreCase = true) }
-            ?: return AuthResult.Error("Аккаунт не найден")
+        val normalized = EmailHasher.normalize(email)
+        val account = repo.snapshot().accounts.firstOrNull {
+            it.email.equals(normalized, ignoreCase = true) && !it.isSupabase
+        } ?: return AuthResult.Error("Аккаунт не найден")
         if (!PasswordHasher.verify(password, account.salt, account.passwordHash)) {
             return AuthResult.Error("Неверный пароль")
         }
-        repo.update { it.copy(sessionCode = account.code) }
+        val hash = account.emailHash.ifBlank { EmailHasher.hash(account.email) }
+        repo.update { state ->
+            state.copy(
+                sessionCode = account.code,
+                // Старые локальные профили не содержали email — подтягиваем его из аккаунта.
+                profiles = state.profiles.map { profile ->
+                    if (profile.code == account.code && profile.email.isBlank()) {
+                        profile.copy(
+                            email = account.email,
+                            emailHash = hash,
+                            provider = account.provider
+                        )
+                    } else profile
+                }
+            )
+        }
         return AuthResult.Success
     }
 
@@ -207,7 +256,7 @@ class AuthManager(private val repo: AppRepository) {
     }
 
     fun cancelPending() {
-        repo.update { it.copy(pending = null) }
+        repo.update { it.copy(pending = null, pendingEmail = null) }
     }
 
     fun updateProfile(
@@ -276,9 +325,12 @@ object VerificationCodes {
     fun matches(input: String, expected: String): Boolean =
         input.trim().uppercase() == expected.uppercase()
 
-    fun newUserCode(): String {
+    fun newUserCode(excluded: Set<String> = emptySet()): String {
         val random = java.security.SecureRandom()
-        val body = (1..6).map { ALPHABET[random.nextInt(ALPHABET.length)] }.joinToString("")
-        return "U-$body"
+        while (true) {
+            val body = (1..6).map { ALPHABET[random.nextInt(ALPHABET.length)] }.joinToString("")
+            val code = "U-$body"
+            if (code !in excluded) return code
+        }
     }
 }

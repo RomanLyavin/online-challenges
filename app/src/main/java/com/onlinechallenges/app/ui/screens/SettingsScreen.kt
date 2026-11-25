@@ -233,8 +233,8 @@ fun SettingsScreen(vm: AppViewModel) {
         Spacer(Modifier.height(8.dp))
         Text(
             "Версия ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" +
-                "Email-подтверждение работает в демо-режиме: код показывается на экране проверки. " +
-                "Почтовый сервер не подключён.",
+                "Подтверждение email и сброс пароля работают через Supabase Auth: " +
+                "ссылки приходят на настоящую почту.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

@@ -26,6 +26,9 @@ val embeddedGitHubTokenB64 = run {
     val masked = ByteArray(bytes.size) { index -> (bytes[index].toInt() xor 0x5A).toByte() }
     Base64.getEncoder().encodeToString(masked)
 }
+val supabaseUrl = localProperties.getProperty("SUPABASE_URL", "").trim()
+val supabasePublishableKey = localProperties.getProperty("SUPABASE_PUBLISHABLE_KEY", "").trim()
+    .ifBlank { localProperties.getProperty("SUPABASE_ANON_KEY", "").trim() }
 
 android {
     namespace = "com.onlinechallenges.app"
@@ -35,9 +38,11 @@ android {
         applicationId = "com.onlinechallenges.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.4.1"
+        versionCode = 9
+        versionName = "1.5.0"
         buildConfigField("String", "GITHUB_TOKEN_B64", "\"$embeddedGitHubTokenB64\"")
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"$supabasePublishableKey\"")
         resourceConfigurations += listOf("ru")
     }
 
@@ -110,6 +115,10 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    val supabaseVersion = "3.0.3"
+    implementation("io.github.jan-tennert.supabase:auth-kt:$supabaseVersion")
+    implementation("io.ktor:ktor-client-okhttp:3.0.2")
     implementation("androidx.media3:media3-transformer:1.5.1")
     implementation("androidx.media3:media3-effect:1.5.1")
 

@@ -303,6 +303,12 @@ fun ProfileScreen(vm: AppViewModel) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Профиль", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(8.dp))
+                        val emailValue = profile?.email.orEmpty()
+                        ProfileInfoRow(
+                            "Email",
+                            emailValue.ifBlank { "не добавлен — пароль не восстановить" }
+                        )
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         ProfileInfoRow("Дата рождения", formatBirthDateSafe(profile?.birthDate))
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         ProfileInfoRow("Пол", profile?.gender?.label ?: "—")

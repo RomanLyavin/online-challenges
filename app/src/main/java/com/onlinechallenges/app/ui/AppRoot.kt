@@ -46,9 +46,11 @@ import com.onlinechallenges.app.ui.screens.CatalogScreen
 import com.onlinechallenges.app.ui.screens.ChallengeDetailScreen
 import com.onlinechallenges.app.ui.screens.CheckInScreen
 import com.onlinechallenges.app.ui.screens.CreateChallengeScreen
+import com.onlinechallenges.app.ui.screens.ForgotPasswordScreen
 import com.onlinechallenges.app.ui.screens.HomeScreen
 import com.onlinechallenges.app.ui.screens.MedalDetailsScreen
 import com.onlinechallenges.app.ui.screens.ProfileScreen
+import com.onlinechallenges.app.ui.screens.ResetPasswordScreen
 import com.onlinechallenges.app.ui.screens.SettingsScreen
 import com.onlinechallenges.app.ui.screens.SetupProfileScreen
 import com.onlinechallenges.app.ui.screens.StatisticsScreen
@@ -88,7 +90,8 @@ fun AppRoot(vm: AppViewModel) {
         else -> -1
     }
     val showTopBar = when (current) {
-        Screen.Auth, Screen.Verify, Screen.Home, Screen.Catalog, Screen.ProfileScreen -> false
+        Screen.Auth, Screen.Verify, Screen.ForgotPassword, Screen.ResetPassword,
+        Screen.Home, Screen.Catalog, Screen.ProfileScreen -> false
         Screen.SetupProfile -> stack.size > 1
         else -> true
     }
@@ -168,6 +171,8 @@ fun AppRoot(vm: AppViewModel) {
                 when (current) {
                     Screen.Auth -> AuthScreen(vm)
                     Screen.Verify -> VerifyScreen(vm)
+                    Screen.ForgotPassword -> ForgotPasswordScreen(vm)
+                    Screen.ResetPassword -> ResetPasswordScreen(vm)
                     Screen.SetupProfile -> SetupProfileScreen(vm)
                     Screen.Home -> HomeScreen(vm)
                     Screen.Catalog -> CatalogScreen(vm)

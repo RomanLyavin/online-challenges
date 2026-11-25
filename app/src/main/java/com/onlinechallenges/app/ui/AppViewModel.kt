@@ -25,6 +25,7 @@ import com.onlinechallenges.app.data.CheckIn
 import com.onlinechallenges.app.data.CryptoBox
 import com.onlinechallenges.app.data.Dates
 import com.onlinechallenges.app.data.DemoData
+import com.onlinechallenges.app.data.EmailHasher
 import com.onlinechallenges.app.data.Gender
 import com.onlinechallenges.app.data.GitHubClient
 import com.onlinechallenges.app.data.GitHubConfig
@@ -36,8 +37,11 @@ import com.onlinechallenges.app.data.PeerConfirmation
 import com.onlinechallenges.app.data.PrivateBundle
 import com.onlinechallenges.app.data.Profile
 import com.onlinechallenges.app.data.ProofType
+import com.onlinechallenges.app.data.PublicProfileLookup
+import com.onlinechallenges.app.data.SupabaseAuth
 import com.onlinechallenges.app.data.SyncManager
 import com.onlinechallenges.app.data.SyncPrefs
+import com.onlinechallenges.app.data.UserAccount
 import com.onlinechallenges.app.data.VerificationCodes
 import com.onlinechallenges.app.data.isoNow
 import com.onlinechallenges.app.data.parseDate
@@ -46,6 +50,8 @@ import com.onlinechallenges.app.update.ApkVerifier
 import com.onlinechallenges.app.update.GitHubRelease
 import com.onlinechallenges.app.update.GitHubUpdate
 import com.onlinechallenges.app.update.UpdateState
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,6 +66,8 @@ import kotlin.math.roundToInt
 sealed interface Screen {
     data object Auth : Screen
     data object Verify : Screen
+    data object ForgotPassword : Screen
+    data object ResetPassword : Screen
     data object SetupProfile : Screen
     data object Home : Screen
     data object Catalog : Screen
@@ -108,6 +116,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val draft = MutableStateFlow<CheckInDraft?>(null)
     val avatarDraft = MutableStateFlow<String?>(null)
     val uiMessage = MutableStateFlow<String?>(null)
+    val authError = MutableStateFlow<String?>(null)
+    val authBusy = MutableStateFlow(false)
+    val passwordResetRequested = MutableStateFlow(false)
     val mediaBusyGoal = MutableStateFlow<String?>(null)
     val avatarBusy = MutableStateFlow(false)
     val privateJoinBusy = MutableStateFlow(false)
@@ -119,11 +130,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             DemoData.seedIfNeeded(repository)
             Awards.awardFinishedChallenges(repository)
+            migrateProfileEmails()
             withContext(Dispatchers.Main) {
                 initializeNavigation()
                 initialized.value = true
+                if (SupabaseAuth.isConfigured) observeSupabaseSession()
                 if (syncPrefs.load().autoSync) syncNow()
             }
+        }
+    }
+
+    /** Профили старых версий не хранили email — восстанавливаем его из локального аккаунта. */
+    private fun migrateProfileEmails() {
+        repository.update { state ->
+            val profiles = state.profiles.map { profile ->
+                if (profile.email.isNotBlank()) return@map profile
+                val account = state.accounts.firstOrNull { it.code == profile.code } ?: return@map profile
+                profile.copy(
+                    email = account.email,
+                    emailHash = account.emailHash.ifBlank { EmailHasher.hash(account.email) },
+                    provider = account.provider,
+                    supabaseUserId = account.supabaseUserId
+                )
+            }
+            state.copy(profiles = profiles)
         }
     }
 
@@ -175,28 +205,92 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // ---------- Регистрация и вход ----------
 
-    fun register(email: String, password: String, confirm: String): String? {
-        if (password != confirm) return "Пароли не совпадают"
-        val result = auth.register(email, password)
-        if (result is AuthResult.Error) return result.message
-        screenStack.clear()
-        screenStack += Screen.Verify
-        return null
+    private var handledSessionUserId: String? = null
+
+    private fun authMessage(error: Throwable): String {
+        val message = error.message.orEmpty()
+        return when {
+            message.contains("Email not confirmed", ignoreCase = true) ->
+                "Подтвердите email по ссылке из письма"
+            message.contains("Invalid login credentials", ignoreCase = true) ||
+                message.contains("Invalid email or password", ignoreCase = true) ->
+                "Неверный email или пароль"
+            message.contains("User already registered", ignoreCase = true) ->
+                "Аккаунт с таким email уже есть — войдите"
+            message.contains("network", ignoreCase = true) || message.contains("timeout", ignoreCase = true) ->
+                "Нет сети. Проверьте подключение и попробуйте снова"
+            message.isNotBlank() -> message
+            else -> "Не удалось выполнить вход"
+        }
     }
 
-    fun verify(code: String): String? {
-        val result = auth.verify(code)
-        if (result is AuthResult.Error) return result.message
+    private fun openAfterLogin() {
         val profile = repository.snapshot().currentProfile()
         screenStack.clear()
         screenStack += if (profile?.isComplete == true) Screen.Home else Screen.SetupProfile
-        uiMessage.value = "Email подтверждён"
+    }
+
+    /** Локальная регистрация без реальной почты: восстановление пароля будет недоступно. */
+    fun registerLocal(email: String, password: String, confirm: String): String? {
+        if (password != confirm) return "Пароли не совпадают"
+        val result = auth.register(email, password)
+        if (result is AuthResult.Error) return result.message
+        handledSessionUserId = null
+        openAfterLogin()
+        uiMessage.value = "Локальный аккаунт создан. Добавьте email в профиль для восстановления пароля"
         return null
     }
 
-    fun resendCode(): String? {
-        val result = auth.resendCode()
-        return (result as? AuthResult.Error)?.message
+    fun register(email: String, password: String, confirm: String): String? {
+        if (password != confirm) return "Пароли не совпадают"
+        val normalized = EmailHasher.normalize(email)
+        if (!AuthManager.isEmailValid(normalized)) return "Введите корректный email"
+        if (password.length < 6) return "Пароль должен быть не короче 6 символов"
+        if (!SupabaseAuth.isConfigured) return registerLocal(email, password, confirm)
+
+        authBusy.value = true
+        authError.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                repository.update { it.copy(pendingEmail = normalized, pending = null) }
+                SupabaseAuth.signUp(normalized, password)
+                withContext(Dispatchers.Main) {
+                    screenStack.clear()
+                    screenStack += Screen.Verify
+                    uiMessage.value = "Письмо подтверждения отправлено на $normalized"
+                }
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) { authError.value = authMessage(error) }
+            } finally {
+                withContext(Dispatchers.Main) { authBusy.value = false }
+            }
+        }
+        return null
+    }
+
+    fun resendConfirmation(): String? {
+        val email = repository.snapshot().pendingEmail
+        if (email.isNullOrBlank()) return "Не найден email для подтверждения"
+        if (!SupabaseAuth.isConfigured) return "Подтверждение через почту недоступно"
+        authBusy.value = true
+        authError.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                SupabaseAuth.resendConfirmation(email)
+                withContext(Dispatchers.Main) { uiMessage.value = "Письмо подтверждения отправлено повторно" }
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) { authError.value = authMessage(error) }
+            } finally {
+                withContext(Dispatchers.Main) { authBusy.value = false }
+            }
+        }
+        return null
+    }
+
+    fun completeEmailCheck() {
+        screenStack.clear()
+        screenStack += Screen.Auth
+        uiMessage.value = "Теперь войдите с вашим email и паролем"
     }
 
     fun cancelVerification() {
@@ -206,19 +300,201 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun login(email: String, password: String): String? {
-        val result = auth.login(email, password)
-        if (result is AuthResult.Error) return result.message
-        val profile = repository.snapshot().currentProfile()
-        screenStack.clear()
-        screenStack += if (profile?.isComplete == true) Screen.Home else Screen.SetupProfile
+        val normalized = EmailHasher.normalize(email)
+        if (!SupabaseAuth.isConfigured) {
+            val result = auth.login(normalized, password)
+            if (result is AuthResult.Error) return result.message
+            openAfterLogin()
+            return null
+        }
+
+        authBusy.value = true
+        authError.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                SupabaseAuth.signIn(normalized, password)
+                val user = SupabaseAuth.currentUser()
+                if (user != null) {
+                    adoptSupabaseUser(normalized, user.id)
+                } else {
+                    withContext(Dispatchers.Main) { authError.value = "Не удалось войти" }
+                }
+            } catch (error: Exception) {
+                val local = auth.login(normalized, password)
+                if (local is AuthResult.Success) {
+                    withContext(Dispatchers.Main) { openAfterLogin() }
+                } else {
+                    withContext(Dispatchers.Main) { authError.value = authMessage(error) }
+                }
+            } finally {
+                withContext(Dispatchers.Main) { authBusy.value = false }
+            }
+        }
         return null
     }
 
+    fun clearAuthError() {
+        authError.value = null
+    }
+
+    fun openForgotPassword() {
+        authError.value = null
+        screenStack += Screen.ForgotPassword
+    }
+
+    fun requestPasswordReset(email: String): String? {
+        val normalized = EmailHasher.normalize(email)
+        if (!AuthManager.isEmailValid(normalized)) return "Введите корректный email"
+        if (!SupabaseAuth.isConfigured) return "Восстановление доступно только с подключённым Supabase"
+        authBusy.value = true
+        authError.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                SupabaseAuth.requestPasswordReset(normalized)
+                withContext(Dispatchers.Main) {
+                    uiMessage.value = "Ссылка для сброса отправлена на $normalized"
+                    screenStack.clear()
+                    screenStack += Screen.Auth
+                }
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) { authError.value = authMessage(error) }
+            } finally {
+                withContext(Dispatchers.Main) { authBusy.value = false }
+            }
+        }
+        return null
+    }
+
+    fun updatePassword(password: String, confirm: String): String? {
+        if (password != confirm) return "Пароли не совпадают"
+        if (password.length < 6) return "Пароль должен быть не короче 6 символов"
+        if (!SupabaseAuth.isConfigured || !SupabaseAuth.isSignedIn()) {
+            return "Откройте ссылку из письма для сброса пароля"
+        }
+        authBusy.value = true
+        authError.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                SupabaseAuth.updatePassword(password)
+                SupabaseAuth.clearRecoveryFlag()
+                passwordResetRequested.value = false
+                withContext(Dispatchers.Main) {
+                    uiMessage.value = "Пароль обновлён"
+                    openAfterLogin()
+                }
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) { authError.value = authMessage(error) }
+            } finally {
+                withContext(Dispatchers.Main) { authBusy.value = false }
+            }
+        }
+        return null
+    }
+
+    /** Deep link из письма подтверждения или сброса пароля. */
+    fun handleAuthIntent(intent: Intent) {
+        SupabaseAuth.handleDeeplinks(intent)
+        if (SupabaseAuth.recoveryRedirectPending) {
+            passwordResetRequested.value = true
+            handledSessionUserId = null
+        }
+    }
+
+    private fun observeSupabaseSession() {
+        val client = SupabaseAuth.clientOrNull ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            client.auth.sessionStatus.collect { status ->
+                val user = (status as? SessionStatus.Authenticated)?.session?.user ?: return@collect
+                if (user.id == handledSessionUserId) return@collect
+                val email = user.email.orEmpty()
+                if (email.isBlank()) return@collect
+                if (passwordResetRequested.value || SupabaseAuth.recoveryRedirectPending) {
+                    handledSessionUserId = user.id
+                    withContext(Dispatchers.Main) {
+                        screenStack.clear()
+                        screenStack += Screen.ResetPassword
+                    }
+                } else {
+                    adoptSupabaseUser(email, user.id)
+                }
+            }
+        }
+    }
+
+    private suspend fun adoptSupabaseUser(email: String, userId: String) {
+        handledSessionUserId = userId
+        val hash = EmailHasher.hash(email)
+        val state = repository.snapshot()
+        val existing = state.accounts.firstOrNull { it.supabaseUserId == userId }
+            ?: state.accounts.firstOrNull { it.email.equals(email, ignoreCase = true) }
+        val config = syncPrefs.load()
+        val remoteProfile = if (config.isConfigured) {
+            runCatching {
+                GitHubClient(config).getFile("data/profiles.json")?.text?.let {
+                    PublicProfileLookup.findByEmailHash(it, hash)
+                }
+            }.getOrNull()
+        } else null
+        val takenCodes = state.accounts.map { it.code }.toSet() +
+            state.profiles.map { it.code }.toSet() +
+            listOfNotNull(remoteProfile?.code)
+        val code = existing?.code ?: remoteProfile?.code ?: VerificationCodes.newUserCode(takenCodes)
+        val baseProfile = remoteProfile ?: state.profiles.firstOrNull { it.code == code }
+        val displayName = email.substringBefore("@").replaceFirstChar { it.uppercase() }
+        val profile = (baseProfile ?: Profile(code = code, name = displayName.ifBlank { "Участник" })).copy(
+            email = email,
+            emailHash = hash,
+            provider = "supabase",
+            supabaseUserId = userId,
+            isDemo = false
+        )
+        val account = (existing ?: UserAccount(
+            id = userId,
+            email = email,
+            passwordHash = "",
+            salt = "",
+            code = code,
+            createdAt = isoNow()
+        )).copy(
+            email = email,
+            emailHash = hash,
+            provider = "supabase",
+            supabaseUserId = userId,
+            code = code
+        )
+        repository.update { current ->
+            val accounts = if (current.accounts.any { it.id == account.id }) {
+                current.accounts.map { if (it.id == account.id) account else it }
+            } else current.accounts + account
+            val profiles = if (current.profiles.any { it.code == profile.code }) {
+                current.profiles.map { if (it.code == profile.code) profile else it }
+            } else current.profiles + profile
+            current.copy(
+                accounts = accounts,
+                profiles = profiles,
+                sessionCode = code,
+                pending = null,
+                pendingEmail = null
+            )
+        }
+        withContext(Dispatchers.Main) { openAfterLogin() }
+    }
+
     fun logout() {
-        auth.logout()
-        draft.value = null
-        screenStack.clear()
-        screenStack += Screen.Auth
+        authBusy.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { SupabaseAuth.signOut() }
+            auth.logout()
+            handledSessionUserId = null
+            SupabaseAuth.clearRecoveryFlag()
+            passwordResetRequested.value = false
+            withContext(Dispatchers.Main) {
+                draft.value = null
+                screenStack.clear()
+                screenStack += Screen.Auth
+                authBusy.value = false
+            }
+        }
     }
 
     // ---------- Профиль ----------
@@ -1132,8 +1408,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (!remote.isNullOrBlank()) return config.value.pagesUrl + remote
         return null
     }
-
-    fun newPendingCode(): String? = repository.snapshot().pending?.code
 
     fun formatInput(value: Double): String =
         if (value % 1.0 == 0.0) value.roundToInt().toString()
