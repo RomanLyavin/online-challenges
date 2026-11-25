@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -34,6 +35,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -53,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.onlinechallenges.app.data.Challenge
+import com.onlinechallenges.app.data.Dates
 import com.onlinechallenges.app.data.Gender
 import com.onlinechallenges.app.data.Profile
 import com.onlinechallenges.app.data.normalizeChallenges
@@ -283,7 +286,12 @@ fun ProfileScreen(vm: AppViewModel) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        medals.sortedBy { it.place }.forEach { MedalBadge(it) }
+                        medals.sortedBy { it.place }.forEach { medal ->
+                            MedalBadge(
+                                medal = medal,
+                                onClick = { vm.openMedalDetails(medal.challengeId, medal.place) }
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(18.dp))
@@ -402,4 +410,141 @@ private fun ProfileInfoRow(label: String, value: String) {
 private fun formatBirthDateSafe(value: String?): String {
     if (value.isNullOrBlank()) return "—"
     return com.onlinechallenges.app.ui.formatBirthDate(value)
+}
+
+@Composable
+fun MedalDetailsScreen(vm: AppViewModel, challengeId: String, place: Int) {
+    val data by vm.data.collectAsStateWithLifecycle()
+    val profile = data.currentProfile()
+    val challenge = data.challenge(challengeId)
+    val medal = profile?.medals?.firstOrNull { it.challengeId == challengeId && it.place == place }
+    if (challenge == null || medal == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            EmptyState(
+                emoji = "🏅",
+                title = "Медаль не найдена",
+                text = "Возможно, челлендж был удалён или данные ещё не синхронизированы.",
+                actionText = "Назад",
+                onAction = { vm.back() }
+            )
+        }
+        return
+    }
+    if (!challenge.hasAccess(profile?.code)) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            EmptyState(
+                emoji = "🔒",
+                title = "Приватный челлендж",
+                text = "Подробности доступны только участникам челленджа.",
+                actionText = "Назад",
+                onAction = { vm.back() }
+            )
+        }
+        return
+    }
+    val scores = com.onlinechallenges.app.data.ChallengeEngine.scoreChallenge(
+        challenge,
+        data.checkIns,
+        data.profiles,
+        LocalDate.now(),
+        confirmations = data.confirmations
+    )
+    val myScore = scores.firstOrNull { it.code == profile?.code }
+    val earnedDate = runCatching {
+        java.time.Instant.parse(medal.earnedAt)
+            .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+    }.getOrNull()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 32.dp)
+    ) {
+        item {
+            GradientHeader {
+                Column(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(medal.emoji, style = MaterialTheme.typography.displayMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "${medal.label} · награда",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(challenge.title, style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                    Text(
+                        Dates.range(challenge.start, challenge.end),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                }
+            }
+        }
+        item {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Подробности медали", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(10.dp))
+                        ProfileInfoRow("Место", medal.label)
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        ProfileInfoRow("Челлендж", challenge.title)
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        ProfileInfoRow(
+                            "Получена",
+                            earnedDate?.let { Dates.long(it) } ?: medal.earnedAt
+                        )
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        ProfileInfoRow("Участников", "${scores.size}")
+                    }
+                }
+                if (myScore != null) {
+                    Spacer(Modifier.height(12.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Мой результат", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "${myScore.points} из ${myScore.maxPoints} баллов · место ${myScore.place}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            LinearProgressIndicator(
+                                progress = {
+                                    if (myScore.maxPoints == 0) 0f
+                                    else (myScore.points.toFloat() / myScore.maxPoints).coerceIn(0f, 1f)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Button(
+                    onClick = { vm.openStatistics(challenge.id, profile?.code) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small
+                ) { Text("Статистика челленджа") }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { vm.openChallenge(challenge.id) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small
+                ) { Text("Открыть челлендж") }
+            }
+        }
+    }
 }

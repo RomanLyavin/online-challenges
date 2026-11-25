@@ -69,6 +69,7 @@ sealed interface Screen {
     data class ChallengeDetail(val challengeId: String) : Screen
     data class CheckInScreen(val challengeId: String, val date: String) : Screen
     data class Statistics(val challengeId: String, val selectedCode: String? = null) : Screen
+    data class MedalDetails(val challengeId: String, val place: Int) : Screen
 }
 
 data class CheckInDraft(
@@ -166,6 +167,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun openChallenge(id: String) = navigate(Screen.ChallengeDetail(id))
     fun openStatistics(id: String, selectedCode: String? = null) =
         navigate(Screen.Statistics(id, selectedCode))
+    fun openMedalDetails(challengeId: String, place: Int) =
+        navigate(Screen.MedalDetails(challengeId, place))
     fun openCreateChallenge() = navigate(Screen.CreateChallenge)
     fun openSettings() = navigate(Screen.Settings)
     fun openProfile() = navigate(Screen.ProfileScreen)

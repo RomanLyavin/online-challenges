@@ -294,101 +294,6 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                 }
             }
         }
-        val inviteCode = challenge.inviteCode()
-        if (challenge.isPrivate && inviteCode != null && profile?.code == challenge.creatorCode) {
-            item {
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-                        ),
-                        shape = MaterialTheme.shapes.large
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                PrivateBadge()
-                                Spacer(Modifier.width(8.dp))
-                                Text("Код приглашения", style = MaterialTheme.typography.titleSmall)
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                inviteCode,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                "Передайте код участникам. Ввод кода — это и есть приглашение: заявки на одобрение не нужны.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            OutlinedButton(
-                                onClick = {
-                                    clipboard.setText(AnnotatedString(inviteCode))
-                                    Toast.makeText(context, "Код скопирован", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = MaterialTheme.shapes.small
-                            ) { Text("Скопировать код") }
-                        }
-                    }
-                }
-            }
-        }
-        if (isOrganizer) {
-            item {
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-                    SectionTitle(
-                        "Управление челленджем",
-                        subtitle = "Доступно организатору ${challenge.creatorName}"
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        shape = MaterialTheme.shapes.large
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            DateField(
-                                label = "Дата окончания",
-                                value = newEndDate,
-                                onDateSelected = { newEndDate = it },
-                                minDate = maxOf(challenge.start, LocalDate.now())
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            Button(
-                                onClick = {
-                                    actionError = vm.updateChallengeEndDate(
-                                        challenge.id,
-                                        newEndDate.toString()
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = MaterialTheme.shapes.small
-                            ) { Text("Сохранить дату окончания") }
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = { showDeleteDialog = true },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = MaterialTheme.shapes.small,
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.error
-                                )
-                            ) { Text("Удалить челлендж") }
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                "Удаление уберёт челлендж, его отметки и подтверждения. " +
-                                    "Загруженные файлы также удаляются из GitHub.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-        }
         if (myScore != null) {
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)) {
@@ -647,6 +552,101 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                 text = "Балл начисляется за полностью выполненную цель с фото, видео или подтверждением другого участника. Любой участник челленджа, кроме автора отметки, может поставить галочку до окончания челленджа. Превышение цели не добавляет баллов. Частичный результат выделяется жёлтым, пропуск — красным.",
                 modifier = Modifier.padding(horizontal = 20.dp)
             )
+        }
+        val inviteCode = challenge.inviteCode()
+        if (challenge.isPrivate && inviteCode != null && profile?.code == challenge.creatorCode) {
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                        ),
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                PrivateBadge()
+                                Spacer(Modifier.width(8.dp))
+                                Text("Код приглашения", style = MaterialTheme.typography.titleSmall)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                inviteCode,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Передайте код участникам. Ввод кода — это и есть приглашение: заявки на одобрение не нужны.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(inviteCode))
+                                    Toast.makeText(context, "Код скопирован", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.small
+                            ) { Text("Скопировать код") }
+                        }
+                    }
+                }
+            }
+        }
+        if (isOrganizer) {
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+                    SectionTitle(
+                        "Управление челленджем",
+                        subtitle = "Доступно организатору ${challenge.creatorName}"
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            DateField(
+                                label = "Дата окончания",
+                                value = newEndDate,
+                                onDateSelected = { newEndDate = it },
+                                minDate = maxOf(challenge.start, LocalDate.now())
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = {
+                                    actionError = vm.updateChallengeEndDate(
+                                        challenge.id,
+                                        newEndDate.toString()
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.small
+                            ) { Text("Сохранить дату окончания") }
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { showDeleteDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.small,
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error
+                                )
+                            ) { Text("Удалить челлендж") }
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Удаление уберёт челлендж, его отметки и подтверждения. " +
+                                    "Загруженные файлы также удаляются из GitHub.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
     if (showDeleteDialog) {

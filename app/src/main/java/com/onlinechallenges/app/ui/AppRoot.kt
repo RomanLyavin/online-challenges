@@ -47,6 +47,7 @@ import com.onlinechallenges.app.ui.screens.ChallengeDetailScreen
 import com.onlinechallenges.app.ui.screens.CheckInScreen
 import com.onlinechallenges.app.ui.screens.CreateChallengeScreen
 import com.onlinechallenges.app.ui.screens.HomeScreen
+import com.onlinechallenges.app.ui.screens.MedalDetailsScreen
 import com.onlinechallenges.app.ui.screens.ProfileScreen
 import com.onlinechallenges.app.ui.screens.SettingsScreen
 import com.onlinechallenges.app.ui.screens.SetupProfileScreen
@@ -176,6 +177,7 @@ fun AppRoot(vm: AppViewModel) {
                     is Screen.ChallengeDetail -> ChallengeDetailScreen(vm, current.challengeId)
                     is Screen.CheckInScreen -> CheckInScreen(vm)
                     is Screen.Statistics -> StatisticsScreen(vm, current.challengeId, current.selectedCode)
+                    is Screen.MedalDetails -> MedalDetailsScreen(vm, current.challengeId, current.place)
                 }
             }
         }
@@ -224,5 +226,6 @@ private fun topBarTitle(screen: Screen): String = when (screen) {
     is Screen.ChallengeDetail -> "Челлендж"
     is Screen.CheckInScreen -> "Отметка"
     is Screen.Statistics -> "Статистика"
+    is Screen.MedalDetails -> "Медаль"
     else -> "Онлайн челленджи"
 }

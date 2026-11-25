@@ -516,8 +516,10 @@ fun InfoBanner(
 }
 
 @Composable
-fun MedalBadge(medal: Medal, compact: Boolean = false) {
+fun MedalBadge(medal: Medal, compact: Boolean = false, onClick: (() -> Unit)? = null) {
     Surface(
+        onClick = onClick ?: {},
+        enabled = onClick != null,
         color = medalColor(medal.place).copy(alpha = 0.14f),
         shape = RoundedCornerShape(12.dp)
     ) {
@@ -528,15 +530,11 @@ fun MedalBadge(medal: Medal, compact: Boolean = false) {
             Text(medal.emoji, style = MaterialTheme.typography.titleMedium)
             if (!compact) {
                 Spacer(Modifier.width(6.dp))
-                Column {
-                    Text(medal.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        medal.challengeTitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                Text(
+                    medal.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
             } else {
                 Spacer(Modifier.width(4.dp))
                 Text(medal.label, style = MaterialTheme.typography.labelSmall)

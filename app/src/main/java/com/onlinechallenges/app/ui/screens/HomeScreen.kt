@@ -20,12 +20,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,10 +39,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.onlinechallenges.app.data.Challenge
 import com.onlinechallenges.app.data.ChallengeEngine
-import com.onlinechallenges.app.data.ChallengeStatus
 import com.onlinechallenges.app.data.Dates
+import com.onlinechallenges.app.data.HomeChallengeFilter
+import com.onlinechallenges.app.data.groupHomeChallenges
 import com.onlinechallenges.app.data.normalizeChallenges
 import com.onlinechallenges.app.ui.AppViewModel
 import com.onlinechallenges.app.ui.ChallengeCard
@@ -59,18 +61,18 @@ fun HomeScreen(vm: AppViewModel) {
     val syncState by vm.syncState.collectAsStateWithLifecycle()
     val profile = data.currentProfile()
     val today = LocalDate.now()
-    val challenges = normalizeChallenges(data.challenges)
-    val myChallenges = challenges
-        .filter { challenge -> profile != null && challenge.participantCodes.contains(profile.code) }
-        .sortedWith(compareBy<Challenge> { it.status(today) == ChallengeStatus.FINISHED }.thenByDescending { it.endDate })
-    val available = challenges
-        .filter { challenge ->
-            profile != null && !challenge.participantCodes.contains(profile.code) &&
-                challenge.status(today) != ChallengeStatus.FINISHED
-        }
-        .sortedByDescending { it.participantCodes.size }
-    val active = myChallenges.filter { it.status(today) == ChallengeStatus.ACTIVE }
-    val finished = myChallenges.filter { it.status(today) == ChallengeStatus.FINISHED }
+    var filter by remember { mutableStateOf(HomeChallengeFilter.ALL) }
+    var earliestFirst by remember { mutableStateOf(true) }
+    val groups = groupHomeChallenges(
+        challenges = normalizeChallenges(data.challenges),
+        profileCode = profile?.code,
+        today = today,
+        earliestFirst = earliestFirst
+    )
+    val active = groups.active
+    val finished = groups.finished
+    val available = groups.available
+    val myChallenges = active + finished
     val totalPoints = if (profile != null) {
         myChallenges.sumOf {
             ChallengeEngine.scoreParticipant(
@@ -162,11 +164,6 @@ fun HomeScreen(vm: AppViewModel) {
             }
         }
         item {
-            Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                PrivateJoinCard(vm)
-            }
-        }
-        item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -194,7 +191,37 @@ fun HomeScreen(vm: AppViewModel) {
                 }
             }
         }
-        if (active.isEmpty()) {
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = filter == HomeChallengeFilter.ALL,
+                    onClick = { filter = HomeChallengeFilter.ALL },
+                    label = { Text("Все") }
+                )
+                FilterChip(
+                    selected = filter == HomeChallengeFilter.ACTIVE,
+                    onClick = { filter = HomeChallengeFilter.ACTIVE },
+                    label = { Text("Идут сейчас") }
+                )
+                FilterChip(
+                    selected = filter == HomeChallengeFilter.FINISHED,
+                    onClick = { filter = HomeChallengeFilter.FINISHED },
+                    label = { Text("Завершены") }
+                )
+            }
+            TextButton(
+                onClick = { earliestFirst = !earliestFirst },
+                modifier = Modifier.padding(start = 14.dp)
+            ) {
+                Text(if (earliestFirst) "↑ Сначала ближайшие" else "↓ Сначала поздние")
+            }
+        }
+        if (filter != HomeChallengeFilter.FINISHED && active.isEmpty()) {
             item {
                 EmptyState(
                     emoji = "💪",
@@ -204,7 +231,7 @@ fun HomeScreen(vm: AppViewModel) {
                     onAction = { vm.openCreateChallenge() }
                 )
             }
-        } else {
+        } else if (filter != HomeChallengeFilter.FINISHED) {
             items(active, key = { it.id }) { challenge ->
                 Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 5.dp)) {
                     ChallengeCard(
@@ -218,7 +245,7 @@ fun HomeScreen(vm: AppViewModel) {
                 }
             }
         }
-        if (available.isNotEmpty()) {
+        if (filter != HomeChallengeFilter.FINISHED && available.isNotEmpty()) {
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                     SectionTitle(
@@ -240,7 +267,7 @@ fun HomeScreen(vm: AppViewModel) {
                 }
             }
         }
-        if (finished.isNotEmpty()) {
+        if (filter != HomeChallengeFilter.ACTIVE && finished.isNotEmpty()) {
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                     SectionTitle("Завершённые", subtitle = "Итоги и медали")
@@ -257,6 +284,11 @@ fun HomeScreen(vm: AppViewModel) {
                         onClick = { vm.openChallenge(challenge.id) }
                     )
                 }
+            }
+        }
+        item {
+            Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                PrivateJoinCard(vm)
             }
         }
         item {
