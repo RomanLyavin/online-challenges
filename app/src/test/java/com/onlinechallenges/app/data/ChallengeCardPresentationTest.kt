@@ -7,20 +7,26 @@ import org.junit.Test
 class ChallengeCardPresentationTest {
 
     @Test
-    fun `daily challenges never show score badge`() {
-        assertFalse(shouldShowChallengeCardScore(ChallengeMode.DAILY, 25))
-        assertFalse(shouldShowChallengeCardScore(ChallengeMode.DAILY, 0))
+    fun `daily challenges hide only the mode badge`() {
+        assertFalse(shouldShowModeBadge(ChallengeMode.DAILY))
+        assertTrue(shouldShowModeBadge(ChallengeMode.INTERVAL))
+        assertTrue(shouldShowModeBadge(ChallengeMode.TOTAL))
     }
 
     @Test
-    fun `interval and total challenges show positive score`() {
-        assertTrue(shouldShowChallengeCardScore(ChallengeMode.INTERVAL, 10))
-        assertTrue(shouldShowChallengeCardScore(ChallengeMode.TOTAL, 1))
+    fun `daily challenges still show positive score`() {
+        assertTrue(shouldShowChallengeCardScore(25))
+    }
+
+    @Test
+    fun `score badge is shown for all modes when points are positive`() {
+        assertTrue(shouldShowChallengeCardScore(10))
+        assertTrue(shouldShowChallengeCardScore(1))
     }
 
     @Test
     fun `zero or negative score is always hidden`() {
-        assertFalse(shouldShowChallengeCardScore(ChallengeMode.INTERVAL, 0))
-        assertFalse(shouldShowChallengeCardScore(ChallengeMode.TOTAL, -1))
+        assertFalse(shouldShowChallengeCardScore(0))
+        assertFalse(shouldShowChallengeCardScore(-1))
     }
 }

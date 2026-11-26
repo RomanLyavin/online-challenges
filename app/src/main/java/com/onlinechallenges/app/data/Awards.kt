@@ -20,7 +20,13 @@ object Awards {
             .filter { !today.isAfter(it.end) }
             .map { it.id }
             .toSet()
-        val hiddenIds = data.deletedChallengeIds.toSet() + activeIds
+        // Завершённые челленджи с одним участником больше не дают медалей.
+        // Ранее выданные медали по ним тоже убираем.
+        val singleParticipantIds = data.challenges
+            .filter { today.isAfter(it.end) && it.participantCodes.distinct().size < 2 }
+            .map { it.id }
+            .toSet()
+        val hiddenIds = data.deletedChallengeIds.toSet() + activeIds + singleParticipantIds
         profiles = profiles.map { profile ->
             val kept = profile.medals.filterNot { it.challengeId in hiddenIds }
             if (kept.size == profile.medals.size) {

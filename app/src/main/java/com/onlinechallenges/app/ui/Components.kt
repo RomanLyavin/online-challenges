@@ -64,6 +64,7 @@ import com.onlinechallenges.app.data.ChallengeGoal
 import com.onlinechallenges.app.data.ChallengeStatus
 import com.onlinechallenges.app.data.ChallengeVisibility
 import com.onlinechallenges.app.data.shouldShowChallengeCardScore
+import com.onlinechallenges.app.data.shouldShowModeBadge
 import com.onlinechallenges.app.data.CheckIn
 import com.onlinechallenges.app.data.Dates
 import com.onlinechallenges.app.data.Gender
@@ -328,8 +329,10 @@ fun ChallengeCard(
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusBadge(status)
-                Spacer(Modifier.width(8.dp))
-                ModeBadge(challenge)
+                if (shouldShowModeBadge(challenge.mode)) {
+                    Spacer(Modifier.width(8.dp))
+                    ModeBadge(challenge)
+                }
                 if (challenge.isPrivate) {
                     Spacer(Modifier.width(8.dp))
                     PrivateBadge()
@@ -339,7 +342,7 @@ fun ChallengeCard(
                     DemoBadge()
                 }
                 Spacer(Modifier.weight(1f))
-                if (myScore != null && shouldShowChallengeCardScore(challenge.mode, myScore.points)) {
+                if (myScore != null && shouldShowChallengeCardScore(myScore.points)) {
                     Text(
                         text = "${myScore.points} б.",
                         style = MaterialTheme.typography.titleMedium,

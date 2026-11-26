@@ -78,11 +78,23 @@ class SyncPrefs(private val context: Context) {
     fun lastSync(): String? = prefs.getString(KEY_LAST_SYNC, null)
     fun lastMessage(): String? = prefs.getString(KEY_LAST_MESSAGE, null)
 
-    fun setLastResult(message: String, success: Boolean) {
+    fun setLastResult(message: String, success: Boolean, at: String = isoNow()) {
         prefs.edit()
-            .putString(KEY_LAST_SYNC, isoNow())
+            .putString(KEY_LAST_SYNC, at)
             .putString(KEY_LAST_MESSAGE, message)
             .putBoolean(KEY_LAST_SUCCESS, success)
+            .apply()
+    }
+
+    /**
+     * Ошибка не должна сдвигать время последней успешной синхронизации:
+     * иначе изменения, опубликованные другими устройствами между неудачной
+     * и следующей попыткой, будут пропущены.
+     */
+    fun setLastFailure(message: String) {
+        prefs.edit()
+            .putString(KEY_LAST_MESSAGE, message)
+            .putBoolean(KEY_LAST_SUCCESS, false)
             .apply()
     }
 

@@ -9,7 +9,11 @@ class AwardsTest {
 
     private val today = LocalDate.of(2026, 11, 19)
 
-    private fun challenge(id: String, endDate: String): Challenge = Challenge(
+    private fun challenge(
+        id: String,
+        endDate: String,
+        participants: List<String> = listOf("A", "B")
+    ): Challenge = Challenge(
         id = id,
         title = "Челлендж",
         description = "",
@@ -20,7 +24,7 @@ class AwardsTest {
         goals = emptyList(),
         creatorCode = "A",
         creatorName = "Анна",
-        participantCodes = listOf("A"),
+        participantCodes = participants,
         createdAt = "2026-11-01T10:00:00Z",
         updatedAt = "2026-11-01T10:00:00Z"
     )
@@ -69,5 +73,30 @@ class AwardsTest {
         val result = Awards.apply(data, today)
 
         assertEquals(listOf(medal), result.profiles.single().medals)
+    }
+
+    @Test
+    fun `old medals of a single participant challenge are removed`() {
+        val medal = Medal("ch-solo", "Одиночный", 1, "2026-11-10T10:00:00Z")
+        val data = AppData(
+            profiles = listOf(profile(medal)),
+            challenges = listOf(challenge("ch-solo", "2026-11-10", participants = listOf("A")))
+        )
+
+        val result = Awards.apply(data, today)
+
+        assertTrue(result.profiles.single().medals.isEmpty())
+    }
+
+    @Test
+    fun `medals are not awarded for a finished challenge with one participant`() {
+        val data = AppData(
+            profiles = listOf(Profile(code = "A", name = "Анна")),
+            challenges = listOf(challenge("ch-solo", "2026-11-10", participants = listOf("A")))
+        )
+
+        val result = Awards.apply(data, today)
+
+        assertTrue(result.profiles.single().medals.isEmpty())
     }
 }

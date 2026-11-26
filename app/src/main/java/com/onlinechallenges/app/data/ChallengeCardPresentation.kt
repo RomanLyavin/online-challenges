@@ -1,9 +1,11 @@
 package com.onlinechallenges.app.data
 
 /**
- * В карточке челленджа баллы показываются только там, где они не заданы
- * режимом по умолчанию. Для режима «Каждый день» плашка с баллами лишняя и
- * мешает длинным названиям и бейджам.
+ * В карточке челленджа баллы показываются всегда, когда они есть.
+ * Плашка режима «Каждый день» скрывается: она вместе с баллами не влезает
+ * в одну строку и мешает длинным названиям. Сам режим остаётся доступен
+ * на экране челленджа.
  */
-fun shouldShowChallengeCardScore(mode: ChallengeMode, points: Int): Boolean =
-    mode != ChallengeMode.DAILY && points > 0
+fun shouldShowChallengeCardScore(points: Int): Boolean = points > 0
+
+fun shouldShowModeBadge(mode: ChallengeMode): Boolean = mode != ChallengeMode.DAILY

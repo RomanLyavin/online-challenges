@@ -410,6 +410,8 @@ object ChallengeEngine {
         confirmations: List<PeerConfirmation> = emptyList()
     ): List<Profile> {
         if (!today.isAfter(challenge.end)) return emptyList()
+        // Медали имеют смысл только при соревновании: одиночке не с кем сравнивать результат.
+        if (challenge.participantCodes.distinct().size < 2) return emptyList()
         val ranked = scoreChallenge(
             challenge,
             checkIns,

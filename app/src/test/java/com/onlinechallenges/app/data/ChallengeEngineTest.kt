@@ -297,6 +297,28 @@ class ChallengeEngineTest {
     }
 
     @Test
+    fun `medals are not awarded for a finished challenge with one participant`() {
+        val challenge = challenge(
+            id = "solo",
+            mode = ChallengeMode.DAILY,
+            start = LocalDate.of(2026, 1, 1),
+            end = LocalDate.of(2026, 1, 2),
+            goals = listOf(goal("steps", target = 1.0)),
+            participants = listOf("A")
+        )
+        val checkIns = listOf(
+            checkIn(challenge.id, "A", LocalDate.of(2026, 1, 1), result("steps", 1.0, photo("a"))),
+            checkIn(challenge.id, "A", LocalDate.of(2026, 1, 2), result("steps", 1.0, photo("b")))
+        )
+
+        val awarded = ChallengeEngine.awardMedals(
+            challenge, checkIns, profiles("A"), LocalDate.of(2026, 1, 5)
+        )
+
+        assertTrue(awarded.isEmpty())
+    }
+
+    @Test
     fun `current period is the interval window containing today`() {
         val challenge = challenge(
             id = "current",

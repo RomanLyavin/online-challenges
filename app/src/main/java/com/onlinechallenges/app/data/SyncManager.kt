@@ -35,6 +35,9 @@ class SyncManager(
             if (!config.isConfigured) {
                 throw GitHubException("Синхронизация не настроена")
             }
+            // Фиксируем начало цикла: всё, что опубликовано другими устройствами
+            // после этого момента, будет загружено следующей синхронизацией.
+            val startedAt = isoNow()
             try {
                 val summary = doSync(config)
                 val warningText = if (summary.warnings.isEmpty()) "" else
@@ -42,39 +45,57 @@ class SyncManager(
                 prefs.setLastResult(
                     "Синхронизировано: ${summary.challenges} челленджей, ${summary.checkIns} отметок, " +
                         "файлов: ${summary.uploadedMedia}$warningText",
-                    true
+                    true,
+                    startedAt
                 )
                 summary
             } catch (error: Exception) {
-                prefs.setLastResult(error.message ?: "Ошибка синхронизации", false)
+                prefs.setLastFailure(error.message ?: "Ошибка синхронизации")
                 throw error
             }
         }
     }
 
+    private data class RemoteData(
+        val challenges: List<Challenge>,
+        val profiles: List<Profile>,
+        val checkIns: List<CheckIn>,
+        val confirmations: List<PeerConfirmation>,
+        val deletedChallengeIds: List<String>
+    )
+
     private suspend fun doSync(config: GitHubConfig): SyncSummary {
         val client = GitHubClient(config)
         val cache = mutableMapOf<String, RemoteFile?>()
 
+        val indexFile = runCatching { client.getFile(PATH_SYNC_INDEX) }.getOrNull()
+        val index = indexFile?.text?.let { SyncIndex.fromJson(it) }
         val remoteCatalog = readFile(client, PATH_CATALOG, cache)
-        val remoteChallenges = readFile(client, PATH_CHALLENGES, cache)
-        val remoteProfiles = readFile(client, PATH_PROFILES, cache)
-        val remoteCheckIns = readFile(client, PATH_CHECKINS, cache)
-        val remoteConfirmations = readFile(client, PATH_CONFIRMATIONS, cache)
         val remoteStandings = readFile(client, PATH_STANDINGS, cache)
 
+        val remote = if (index != null) {
+            loadIncremental(client, index, prefs.lastSync(), cache)
+        } else {
+            val remoteChallenges = readFile(client, PATH_CHALLENGES, cache)
+            val remoteProfiles = readFile(client, PATH_PROFILES, cache)
+            val remoteCheckIns = readFile(client, PATH_CHECKINS, cache)
+            val remoteConfirmations = readFile(client, PATH_CONFIRMATIONS, cache)
+            RemoteData(
+                challenges = parseChallenges(remoteChallenges?.text),
+                profiles = parseProfiles(remoteProfiles?.text),
+                checkIns = parseCheckIns(remoteCheckIns?.text),
+                confirmations = parseConfirmations(remoteConfirmations?.text),
+                deletedChallengeIds = parseDeletedIds(remoteChallenges?.text)
+            )
+        }
+
         val before = repo.snapshot()
-        val remoteDeletedIds = parseDeletedIds(remoteChallenges?.text)
-        val deletedIds = (before.deletedChallengeIds + remoteDeletedIds).distinct()
+        val deletedIds = (before.deletedChallengeIds + remote.deletedChallengeIds).distinct()
         val deletedSet = deletedIds.toSet()
         val remoteActivities = parseActivities(remoteCatalog?.text)
-        val remoteChallengesList = parseChallenges(remoteChallenges?.text)
-            .filterNot { it.id in deletedSet }
-        val remoteProfilesList = parseProfiles(remoteProfiles?.text)
-        val remoteCheckInsList = parseCheckIns(remoteCheckIns?.text)
-            .filterNot { it.challengeId in deletedSet }
-        val remoteConfirmationsList = parseConfirmations(remoteConfirmations?.text)
-            .filterNot { it.challengeId in deletedSet }
+        val remoteChallengesList = remote.challenges.filterNot { it.id in deletedSet }
+        val remoteCheckInsList = remote.checkIns.filterNot { it.challengeId in deletedSet }
+        val remoteConfirmationsList = remote.confirmations.filterNot { it.challengeId in deletedSet }
 
         val demos = before.challenges.filter { it.isDemo }
         val localPublic = before.challenges.filter {
@@ -130,9 +151,9 @@ class SyncManager(
         for (challenge in localPrivate.values.toList()) {
             val key = challenge.privateKey
             if (key.isNullOrBlank()) continue
-            val remote = loadPrivateBundle(client, challenge.id, key)
-            remotePrivate[challenge.id] = remote
-            val bundle = remote.bundle ?: continue
+            val remoteBundle = loadPrivateBundle(client, challenge.id, key)
+            remotePrivate[challenge.id] = remoteBundle
+            val bundle = remoteBundle.bundle ?: continue
             val remoteChallenge = bundle.challenge.copy(
                 visibility = ChallengeVisibility.PRIVATE,
                 privateKey = key,
@@ -155,7 +176,7 @@ class SyncManager(
             privateConfirmations.addAll(mergedConfirmations)
         }
 
-        // Публичные файлы больше не должны содержать отметки и подтверждения
+        // Публичные данные больше не должны содержать отметки и подтверждения
         // приватных или удалённых челленджей — даже старые версии этих файлов.
         val baseCheckIns = before.checkIns.filter {
             it.isDemo || (it.challengeId !in privateIds && it.challengeId !in deletedSet)
@@ -178,6 +199,7 @@ class SyncManager(
                 challenges = normalizeChallenges(demos + mergedPublic + localPrivate.values),
                 checkIns = allCheckIns.distinctBy { it.id },
                 confirmations = allConfirmations.distinctBy { it.key },
+                profiles = mergeProfiles(before.profiles, remote.profiles),
                 deletedChallengeIds = deletedIds
             )
         )
@@ -188,19 +210,6 @@ class SyncManager(
             .map { it.id }
             .toSet()
 
-        // Сначала публикуем структуру: каталог, челленджи, профили, отметки и подтверждения.
-        pushJson(client, PATH_CATALOG, catalogJson(merged.activities), "Sync catalog", cache)
-        pushJson(client, PATH_CHALLENGES, challengesJson(merged.challenges, deletedIds), "Sync challenges", cache)
-        pushJson(client, PATH_PROFILES, profilesJson(merged.profiles, privateIdsForProfiles + deletedSet), "Sync profiles", cache)
-        pushJson(client, PATH_CHECKINS, checkInsJson(merged.checkIns, publicIds), "Sync check-ins", cache)
-        pushJson(
-            client,
-            PATH_CONFIRMATIONS,
-            confirmationsJson(merged.confirmations, publicIds),
-            "Sync confirmations",
-            cache
-        )
-
         val warnings = mutableListOf<String>()
         uploadAvatars(repo, client, config, warnings)
         uploadPublicProofs(repo, client, publicIds, warnings)
@@ -208,24 +217,44 @@ class SyncManager(
         uploadPrivateMedia(repo, client, warnings)
 
         val afterUploads = repo.snapshot()
-        pushJson(client, PATH_CATALOG, catalogJson(afterUploads.activities), "Sync activity icons", cache)
-        pushJson(
+        val finalDeletedIds = afterUploads.deletedChallengeIds.distinct()
+        val finalDeletedSet = finalDeletedIds.toSet()
+        val indexChanged = publishPartitions(
             client,
-            PATH_PROFILES,
-            profilesJson(afterUploads.profiles, privateIdsForProfiles + deletedSet),
-            "Sync avatars",
-            cache
+            cache,
+            indexFile,
+            index,
+            afterUploads,
+            publicIds,
+            privateIdsForProfiles + finalDeletedSet,
+            finalDeletedIds
         )
-        pushJson(
-            client,
-            PATH_CHECKINS,
-            checkInsJson(afterUploads.checkIns, publicIds),
-            "Sync proof paths",
-            cache
-        )
+
+        // Старые версии приложения читают обычные JSON. Обновляем их только когда
+        // изменились данные, чтобы обычная синхронизация не скачивала весь файл.
+        if (index == null || indexChanged) {
+            pushJson(client, PATH_CHALLENGES, challengesJson(afterUploads.challenges, finalDeletedIds), "Sync challenges", cache)
+            pushJson(
+                client,
+                PATH_PROFILES,
+                profilesJson(afterUploads.profiles, privateIdsForProfiles + finalDeletedSet),
+                "Sync profiles",
+                cache
+            )
+            pushJson(client, PATH_CHECKINS, checkInsJson(afterUploads.checkIns, publicIds), "Sync check-ins", cache)
+            pushJson(
+                client,
+                PATH_CONFIRMATIONS,
+                confirmationsJson(afterUploads.confirmations, publicIds),
+                "Sync confirmations",
+                cache
+            )
+        }
+        pushJson(client, PATH_CATALOG, catalogJson(afterUploads.activities), "Sync catalog", cache)
+
         pushPrivateBundles(client, afterUploads, remotePrivate, warnings)
         // Удалённые челленджи не должны оставаться в зашифрованных файлах.
-        for (id in deletedIds) {
+        for (id in finalDeletedIds) {
             runCatching { client.deleteFile(privateBundlePath(id), "Delete private challenge") }
         }
 
@@ -248,6 +277,177 @@ class SyncManager(
         )
     }
 
+    private suspend fun loadIncremental(
+        client: GitHubClient,
+        index: SyncIndex,
+        since: String?,
+        cache: MutableMap<String, RemoteFile?>
+    ): RemoteData {
+        val selected = index.idsPublishedAfter(since)
+        val buckets = mutableMapOf<SyncEntity, MutableSet<String>>()
+        for (entity in SyncEntity.entries) {
+            val ids = selected[entity].orEmpty()
+            if (ids.isEmpty()) continue
+            index.records[entity].orEmpty().forEach { ref ->
+                if (ref.id in ids) {
+                    buckets.getOrPut(entity) { mutableSetOf() } += ref.bucket
+                }
+            }
+        }
+
+        val challenges = mutableListOf<Challenge>()
+        val profiles = mutableListOf<Profile>()
+        val checkIns = mutableListOf<CheckIn>()
+        val confirmations = mutableListOf<PeerConfirmation>()
+        for ((entity, dates) in buckets) {
+            val ids = selected[entity].orEmpty()
+            for (date in dates) {
+                val path = syncBucketPath(entity, date)
+                val file = cache[path] ?: client.getFile(path).also { cache[path] = it }
+                val text = file?.text ?: continue
+                for (item in parseSyncBucket(text)) {
+                    if (item.id !in ids) continue
+                    when (entity) {
+                        SyncEntity.CHALLENGES ->
+                            runCatching { Challenge.fromJson(item.data) }.getOrNull()?.let { challenges += it }
+                        SyncEntity.PROFILES ->
+                            runCatching { Profile.fromJson(item.data) }.getOrNull()?.let { profiles += it }
+                        SyncEntity.CHECKINS ->
+                            runCatching { CheckIn.fromJson(item.data) }.getOrNull()?.let { checkIns += it }
+                        SyncEntity.CONFIRMATIONS ->
+                            runCatching { PeerConfirmation.fromJson(item.data) }.getOrNull()?.let { confirmations += it }
+                    }
+                }
+            }
+        }
+        return RemoteData(
+            challenges = normalizeChallenges(challenges),
+            profiles = profiles.distinctBy { it.code },
+            checkIns = checkIns.distinctBy { key(it) },
+            confirmations = confirmations.distinctBy { it.key },
+            deletedChallengeIds = index.deletedChallengeIds
+        )
+    }
+
+    private data class BucketChanges(
+        val upserts: MutableMap<String, JSONObject> = mutableMapOf(),
+        val removals: MutableSet<String> = mutableSetOf()
+    )
+
+    /** Публикует изменённые записи по датам и возвращает true, если индекс изменился. */
+    private suspend fun publishPartitions(
+        client: GitHubClient,
+        cache: MutableMap<String, RemoteFile?>,
+        indexFile: RemoteFile?,
+        index: SyncIndex?,
+        state: AppData,
+        publicChallengeIds: Set<String>,
+        hiddenProfileChallengeIds: Set<String>,
+        deletedIds: List<String>
+    ): Boolean {
+        val items = syncItems(state, publicChallengeIds, hiddenProfileChallengeIds, deletedIds.toSet())
+        val oldRecords = index?.records.orEmpty()
+        val changes = mutableMapOf<Pair<SyncEntity, String>, BucketChanges>()
+        val publishedAt = isoNow()
+        val records = mutableMapOf<SyncEntity, MutableList<SyncRecordRef>>()
+
+        for (entity in SyncEntity.entries) {
+            val desired = items[entity].orEmpty()
+            val desiredIds = desired.map { it.id }.toSet()
+            val oldById = oldRecords[entity].orEmpty().associateBy { it.id }
+            for (old in oldRecords[entity].orEmpty()) {
+                if (old.id !in desiredIds) {
+                    changes.getOrPut(entity to old.bucket) { BucketChanges() }.removals += old.id
+                }
+            }
+
+            val refs = mutableListOf<SyncRecordRef>()
+            for (item in desired) {
+                val old = oldById[item.id]
+                val bucket = syncBucketFor(item.json.optString("updatedAt"))
+                val fingerprint = item.fingerprint
+                val ref = if (
+                    old != null && old.bucket == bucket && old.fingerprint == fingerprint &&
+                    old.publishedAt.isNotBlank()
+                ) {
+                    old
+                } else {
+                    if (old != null && old.bucket != bucket) {
+                        changes.getOrPut(entity to old.bucket) { BucketChanges() }.removals += item.id
+                    }
+                    changes.getOrPut(entity to bucket) { BucketChanges() }.upserts[item.id] = item.json
+                    SyncRecordRef(item.id, bucket, fingerprint, publishedAt)
+                }
+                refs += ref
+            }
+            records[entity] = refs
+        }
+
+        for ((key, change) in changes) {
+            writeBucket(client, cache, key.first, key.second, change)
+        }
+
+        val newIndex = SyncIndex(
+            records = records.mapValues { (_, refs) -> refs.toList() },
+            deletedChallengeIds = deletedIds
+        )
+        val text = newIndex.toJson().toString()
+        if (indexFile?.text == text) return false
+        val sha = client.putText(PATH_SYNC_INDEX, text, "Sync incremental index", indexFile?.sha)
+        cache[PATH_SYNC_INDEX] = RemoteFile(text, sha)
+        return true
+    }
+
+    private fun syncItems(
+        state: AppData,
+        publicChallengeIds: Set<String>,
+        hiddenProfileChallengeIds: Set<String>,
+        deletedIds: Set<String>
+    ): Map<SyncEntity, List<SyncItem>> = mapOf(
+        SyncEntity.CHALLENGES to normalizeChallenges(state.challenges)
+            .filterNot { it.isDemo }
+            .filterNot { it.id in deletedIds }
+            .map { SyncItem(it.id, it.toSyncJson()) },
+        SyncEntity.PROFILES to state.profiles
+            .filterNot { it.isDemo }
+            .map { profile ->
+                val publicMedals = profile.medals.filterNot { it.challengeId in hiddenProfileChallengeIds }
+                if (publicMedals.size == profile.medals.size) {
+                    SyncItem(profile.code, profile.toSyncJson())
+                } else {
+                    SyncItem(profile.code, profile.copy(medals = publicMedals).toSyncJson())
+                }
+            },
+        SyncEntity.CHECKINS to state.checkIns
+            .filterNot { it.isDemo }
+            .filter { it.challengeId in publicChallengeIds }
+            .distinctBy { key(it) }
+            .map { SyncItem(key(it), it.toSyncJson()) },
+        SyncEntity.CONFIRMATIONS to state.confirmations
+            .filterNot { it.isDemo }
+            .filter { it.challengeId in publicChallengeIds }
+            .distinctBy { it.key }
+            .map { SyncItem(it.key, it.toSyncJson()) }
+    )
+
+    private suspend fun writeBucket(
+        client: GitHubClient,
+        cache: MutableMap<String, RemoteFile?>,
+        entity: SyncEntity,
+        bucket: String,
+        change: BucketChanges
+    ) {
+        val path = syncBucketPath(entity, bucket)
+        val existing = cache[path] ?: client.getFile(path).also { cache[path] = it }
+        val items = parseSyncBucket(existing?.text).associateBy { it.id }.toMutableMap()
+        change.removals.forEach { items.remove(it) }
+        change.upserts.forEach { (id, json) -> items[id] = SyncBucketItem(id, json) }
+        val text = syncBucketJson(bucket, items.values.toList()).toString()
+        if (existing?.text == text) return
+        val sha = client.putText(path, text, "Sync ${entity.directory} $bucket", existing?.sha)
+        cache[path] = RemoteFile(text, sha)
+    }
+
     private suspend fun readFile(
         client: GitHubClient,
         path: String,
@@ -266,7 +466,7 @@ class SyncManager(
         cache: MutableMap<String, RemoteFile?>
     ) {
         val text = json.toString()
-        val old = cache[path]
+        val old = cache[path] ?: client.getFile(path).also { cache[path] = it }
         if (old?.text == text) return
         val sha = old?.sha
         val newSha = client.putText(path, text, message, sha)
@@ -757,6 +957,7 @@ class SyncManager(
         const val PATH_CHECKINS = "data/checkins.json"
         const val PATH_CONFIRMATIONS = "data/confirmations.json"
         const val PATH_STANDINGS = "data/standings.json"
+        const val PATH_SYNC_INDEX = "data/v2/index.json"
 
         fun privateBundlePath(challengeId: String): String {
             val safe = challengeId.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120).ifBlank { "challenge" }
