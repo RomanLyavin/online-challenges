@@ -229,9 +229,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 "Подтвердите email по ссылке из письма"
             message.contains("Invalid login credentials", ignoreCase = true) ||
                 message.contains("Invalid email or password", ignoreCase = true) ->
-                "Неверный email или пароль"
-            message.contains("User already registered", ignoreCase = true) ->
-                "Аккаунт с таким email уже есть — войдите"
+                "Неверный email или пароль Supabase"
+            message.contains("User already registered", ignoreCase = true) ||
+                message.contains("already registered", ignoreCase = true) ||
+                message.contains("already exists", ignoreCase = true) ->
+                "Аккаунт в Supabase уже есть, но войти не удалось"
+            message.contains("password", ignoreCase = true) && message.contains("least", ignoreCase = true) ->
+                "Пароль Supabase не принят: $message"
+            message.contains("rate limit", ignoreCase = true) || message.contains("too many", ignoreCase = true) ->
+                "Слишком много попыток. Подождите и попробуйте снова"
             message.contains("network", ignoreCase = true) || message.contains("timeout", ignoreCase = true) ->
                 "Нет сети. Проверьте подключение и попробуйте снова"
             message.isNotBlank() -> message
@@ -440,10 +446,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                         }
                                         return@launch
                                     }
-                                    .onFailure {
+                                    .onFailure { signUpError ->
                                         withContext(Dispatchers.Main) {
                                             openAfterLogin()
-                                            val msg = "Вход выполнен локально. Для реакций не удалось подключить Supabase: ${authMessage(supaError)}"
+                                            val msg = "Вход выполнен локально. Supabase вход: ${authMessage(supaError)}. Регистрация в Supabase: ${authMessage(signUpError)}"
                                             uiMessage.value = msg
                                             authError.value = msg
                                         }
@@ -1600,19 +1606,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch {
-            Toast.makeText(context, "Скачиваем файл…", Toast.LENGTH_SHORT).show()
             try {
+                val dir = File(getApplication<Application>().cacheDir, "private-media").apply { mkdirs() }
+                val safeName = attachment.fileName.ifBlank { attachment.id }
+                    .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                val target = File(dir, "${attachment.id.take(12)}_$safeName")
+                val expectedSize = attachment.sizeBytes.takeIf { it > 0 }
+                val cached = target.exists() && target.length() > 0 && (expectedSize == null || target.length() == expectedSize)
+                if (!cached) {
+                    Toast.makeText(context, "Скачиваем файл…", Toast.LENGTH_SHORT).show()
+                }
                 val file = withContext(Dispatchers.IO) {
+                    // Кэш: если файл уже скачан/расшифрован и его размер совпадает с текущим вложением,
+                    // открываем локальную копию без повторного скачивания.
+                    if (cached) return@withContext target
+
                     val client = GitHubClient(syncPrefs.load())
                     val remoteFile = client.getFileBytes(remote)
                         ?: throw IllegalStateException("Файл не найден в репозитории")
                     val bytes = CryptoBox.decryptBytes(remoteFile.bytes, key)
                         ?: throw IllegalStateException("Не удалось расшифровать файл")
-                    val dir = File(getApplication<Application>().cacheDir, "private-media").apply { mkdirs() }
-                    val safeName = attachment.fileName.ifBlank { attachment.id }
-                        .replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    val target = File(dir, "${attachment.id.take(12)}_$safeName")
-                    target.writeBytes(bytes)
+
+                    // Пишем атомарно, чтобы не оставить битый кэш при сбое.
+                    val tmp = File(dir, "${target.name}.tmp")
+                    tmp.writeBytes(bytes)
+                    if (!tmp.renameTo(target)) {
+                        target.writeBytes(bytes)
+                        tmp.delete()
+                    }
                     target
                 }
                 openLocalFile(context, file, attachment.mime)

@@ -9,7 +9,7 @@ Android-приложение и публичный сайт для челлен�
 места.
 
 - Сайт: <https://romanlyavin.github.io/online-challenges/>
-- APK: [OnlineChallenges-1.6.5.apk](OnlineChallenges-1.6.5.apk) · [последний релиз](https://github.com/RomanLyavin/online-challenges/releases/latest)
+- APK: [OnlineChallenges-1.6.6.apk](OnlineChallenges-1.6.6.apk) · [последний релиз](https://github.com/RomanLyavin/online-challenges/releases/latest)
 - Пакет: `com.onlinechallenges.app`
 - Минимальная версия Android: 8.0 (API 26), целевая — API 35
 
@@ -255,6 +255,16 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 
 Готовый APK: `app\build\outputs\apk\release\app-release.apk`.
 
+## Изменения 1.6.6
+
+- Android: приватные фото/видео челленджей теперь кэшируются после первой
+  расшифровки в `cacheDir/private-media`; повторное открытие использует локальный
+  файл, если размер совпадает с вложением. При изменении файла он скачивается
+  заново.
+- Android: диагностика Supabase-входа для старых локальных аккаунтов показывает
+  отдельно ошибку Supabase-входа и ошибку Supabase-регистрации, чтобы проще было
+  понять, почему не создалась сессия для реакций.
+
 ## Изменения 1.6.5
 
 - Android: усилена диагностика/восстановление Supabase-сессии при входе. Если
@@ -431,6 +441,14 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 - Повторный ввод кода приглашения больше не перезаписывает данные челленджа.
 - Организатор может изменить дату окончания и удалить челлендж.
 - Удалённые челленджи и их отметки не возвращаются при синхронизации.
+
+## Проверка APK 1.6.6
+
+- Размер: 10 692 692 байт (10,20 МиБ)
+- SHA-256: `E4640C909D60A927C08A2ADAADC19BEBFAFDFF00A9826FC65E547EA3A8A9E7F4`
+- Сертификат подписи SHA-256: `9fc6a9cf0ca53fbb668b21f6986ebec27c929a29975903d8169308aa08aee2d8`
+- Подпись APK v2, выравнивание 4 байта
+- Пакет `com.onlinechallenges.app`, versionCode 19, versionName 1.6.6, targetSdk 35
 
 ## Проверка APK 1.6.5
 
