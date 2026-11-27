@@ -305,7 +305,18 @@ a { color: var(--brand); }
 .auth-tab.active { background: var(--brand); color: #fff; }
 .account-card .primary-button, .account-card .secondary-button { width: 100%; margin-top: 8px; }
 .about-card h3 { margin-top: 20px; }
-.link-list a { border-radius: 10px; background: var(--brand-light); padding: 8px 12px; text-decoration: none; }
+.link-list a, .link-list button {
+  border-radius: 10px;
+  background: var(--brand-light);
+  padding: 8px 12px;
+  text-decoration: none;
+  color: var(--brand-dark);
+  cursor: pointer;
+}
+
+.support-image { display: block; margin: 14px 0 8px; border-radius: 16px; overflow: hidden; }
+.support-image img { display: block; width: 100%; height: auto; }
+.support-button { display: inline-block; margin-top: 12px; text-decoration: none; }
 
 .alert {
   max-width: 980px;
@@ -329,23 +340,25 @@ a { color: var(--brand); }
   z-index: 10;
   display: flex;
   justify-content: center;
-  gap: 4px;
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  gap: 2px;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
   background: var(--surface);
   border-top: 1px solid var(--border);
 }
 
 .nav-item {
-  min-width: 72px;
+  flex: 1;
+  min-width: 0;
+  max-width: 92px;
   border: 0;
   background: none;
   color: var(--muted);
   border-radius: 12px;
-  padding: 5px 8px;
+  padding: 5px 2px;
 }
 
 .nav-item span { display: block; font-size: 20px; }
-.nav-item small { font-size: 11px; }
+.nav-item small { font-size: 10px; white-space: nowrap; }
 .nav-item.active { color: var(--brand); background: var(--brand-light); }
 
 @media (max-width: 700px) {

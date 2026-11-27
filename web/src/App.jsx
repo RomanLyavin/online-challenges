@@ -9,12 +9,15 @@ import {
   profileFromUser
 } from './lib/auth.js'
 import { REACTIONS, checkInId, loadReactions, toggleReaction } from './lib/reactions.js'
+import donateImage from './assets/donate.jpg'
 
 const APP_VERSION = '1.6.0'
+const SUPPORT_URL = 'https://t.tb.ru/pm_short/AOdA22MAdsS'
 const TABS = [
   { id: 'home', label: 'Главная', icon: '🏠' },
   { id: 'catalog', label: 'Каталог', icon: '🎯' },
   { id: 'account', label: 'Профиль', icon: '👤' },
+  { id: 'support', label: 'Поддержка', icon: '💛' },
   { id: 'about', label: 'О программе', icon: 'ℹ️' }
 ]
 
@@ -353,7 +356,8 @@ function App() {
             handlers={{ register, verifySignup, login, requestReset, resetPassword, changeEmail, confirmEmailChange, saveProfile, savePassword, signOut }}
           />
         )}
-        {tab === 'about' && <AboutView repoUrl={repoUrl} pagesUrl={pagesUrl} />}
+        {tab === 'support' && <SupportView />}
+        {tab === 'about' && <AboutView repoUrl={repoUrl} pagesUrl={pagesUrl} onSupport={() => navigate('support')} />}
       </main>
 
       <nav className="bottom-nav" aria-label="Разделы">
@@ -706,7 +710,24 @@ function AuthPanel({ mode, setMode, form, updateForm, busy, pendingEmail, handle
   )
 }
 
-function AboutView({ repoUrl, pagesUrl }) {
+function SupportView() {
+  return (
+    <section className="card about-card support-card">
+      <span className="chip">Онлайн челленджи</span>
+      <h2>Поддержать проект</h2>
+      <p>Спасибо за поддержку «Онлайн челленджей»!</p>
+      <a className="support-image" href={SUPPORT_URL} target="_blank" rel="noreferrer">
+        <img src={donateImage} alt="Картинка для поддержки проекта" />
+      </a>
+      <p className="muted">Нажмите на картинку, чтобы перейти к оплате.</p>
+      <a className="primary-button support-button" href={SUPPORT_URL} target="_blank" rel="noreferrer">
+        Перейти к оплате
+      </a>
+    </section>
+  )
+}
+
+function AboutView({ repoUrl, pagesUrl, onSupport }) {
   return (
     <section className="card about-card">
       <span className="chip">Онлайн челленджи</span>
@@ -720,6 +741,7 @@ function AboutView({ repoUrl, pagesUrl }) {
         <a href={pagesUrl} target="_blank" rel="noreferrer">Сайт</a>
         <a href={repoUrl} target="_blank" rel="noreferrer">Исходный код</a>
         <a href={`${repoUrl}/releases/latest`} target="_blank" rel="noreferrer">Скачать APK</a>
+        <button type="button" onClick={onSupport}>Поддержать проект</button>
       </div>
       <p className="muted">Версия {APP_VERSION}. Веб-версия всегда соответствует последней публикации.</p>
     </section>
