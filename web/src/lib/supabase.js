@@ -27,7 +27,7 @@ export function authMessage(error) {
   if (!error) return 'Неизвестная ошибка'
   const text = error.message || String(error)
   if (/invalid login credentials/i.test(text)) return 'Неверный email или пароль'
-  if (/email not confirmed/i.test(text)) return 'Подтвердите email кодом из письма'
+  if (/email not confirmed/i.test(text)) return 'Email не подтверждён. На сайте подтверждение почты не требуется; проверьте настройки Supabase Auth.'
   if (/user already registered/i.test(text)) {
     return 'Аккаунт с такой почтой уже есть — войдите или восстановите пароль'
   }
@@ -35,8 +35,8 @@ export function authMessage(error) {
     return 'Слишком много попыток. Подождите минуту и попробуйте снова'
   }
   if (/failed to fetch|networkerror/i.test(text)) return 'Нет связи с сервером. Проверьте интернет'
-  if (/schema cache|checkin_reactions|relation .* does not exist/i.test(text)) {
-    return 'Реакции пока недоступны: проверьте настройку Supabase'
+  if (/schema cache|relation .* does not exist/i.test(text)) {
+    return 'Функция пока недоступна: проверьте настройку Supabase'
   }
   return text
 }

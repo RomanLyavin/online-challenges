@@ -59,6 +59,7 @@ import com.onlinechallenges.app.data.Challenge
 import com.onlinechallenges.app.data.Dates
 import com.onlinechallenges.app.data.Gender
 import com.onlinechallenges.app.data.Profile
+import com.onlinechallenges.app.data.SupabaseAuth
 import com.onlinechallenges.app.data.normalizeChallenges
 import com.onlinechallenges.app.ui.AppViewModel
 import com.onlinechallenges.app.ui.ChallengeCard
@@ -278,6 +279,21 @@ fun ProfileScreen(vm: AppViewModel) {
                     Icon(Icons.Default.ExitToApp, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Выйти")
+                }
+            }
+        }
+        if (SupabaseAuth.isConfigured && !SupabaseAuth.isSignedIn()) {
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                    InfoBanner(
+                        text = "Войдите с email и паролем, чтобы ставить реакции и пользоваться аккаунтом на сайте.",
+                        warning = true
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { vm.openAccountLogin() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Войти в аккаунт") }
                 }
             }
         }

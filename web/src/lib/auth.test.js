@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isValidCode, isValidEmail, isValidPassword, normalizeEmail, profileFromUser } from './auth.js'
+import { isValidEmail, isValidPassword, normalizeEmail, profileFromUser } from './auth.js'
 
 describe('auth helpers', () => {
   it('normalizes and validates email', () => {
@@ -9,11 +9,9 @@ describe('auth helpers', () => {
     expect(isValidEmail('')).toBe(false)
   })
 
-  it('validates password and code', () => {
+  it('validates password', () => {
     expect(isValidPassword('12345')).toBe(false)
     expect(isValidPassword('123456')).toBe(true)
-    expect(isValidCode('12345')).toBe(false)
-    expect(isValidCode(' 123456 ')).toBe(true)
   })
 
   it('falls back to email when profile metadata is empty', () => {

@@ -226,6 +226,19 @@ a { color: var(--brand); }
 .challenge-head { display: flex; gap: 10px; justify-content: space-between; }
 .points { color: var(--brand); white-space: nowrap; }
 
+.filter-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 4px; }
+.filter-button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.filter-button.active { border-color: var(--brand); background: var(--brand-light); color: var(--brand-dark); }
+.join-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 4px; }
+.join-row small { width: 100%; }
+
 .goal-row, .podium, .result-row, .reactions, .link-list {
   display: flex;
   flex-wrap: wrap;
@@ -260,6 +273,7 @@ a { color: var(--brand); }
 }
 
 .reaction small { display: inline; margin-left: 4px; color: var(--muted); }
+.reaction:disabled { opacity: 0.45; cursor: not-allowed; }
 .reaction.selected { border-color: var(--brand); background: var(--brand-light); }
 
 .reactions { gap: 5px; }

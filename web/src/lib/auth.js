@@ -10,9 +10,7 @@ export function isValidPassword(value) {
   return String(value || '').length >= 6
 }
 
-export function isValidCode(value) {
-  return /^\d{6}$/.test(String(value || '').trim())
-}
+
 
 export function profileFromUser(user) {
   const metadata = user?.user_metadata || {}

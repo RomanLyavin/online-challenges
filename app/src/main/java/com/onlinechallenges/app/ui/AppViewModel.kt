@@ -19,6 +19,7 @@ import com.onlinechallenges.app.data.AuthRules
 import com.onlinechallenges.app.data.Awards
 import com.onlinechallenges.app.data.Challenge
 import com.onlinechallenges.app.data.ChallengeEngine
+import com.onlinechallenges.app.data.ChallengeStatus
 import com.onlinechallenges.app.data.ChallengeGoal
 import com.onlinechallenges.app.data.ChallengeMode
 import com.onlinechallenges.app.data.ChallengeVisibility
@@ -210,6 +211,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun openCreateChallenge() = navigate(Screen.CreateChallenge)
     fun openSettings() = navigate(Screen.Settings)
     fun openProfile() = navigate(Screen.ProfileScreen)
+
+    /** Открыть вход в аккаунт, не разлогинивая локальный профиль. */
+    fun openAccountLogin() {
+        authError.value = null
+        navigate(Screen.Auth)
+    }
 
     // ---------- Регистрация и вход ----------
 
@@ -1243,8 +1250,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleReaction(checkIn: CheckIn, type: ReactionType) {
+        if (!SupabaseAuth.isConfigured) {
+            reactionError.value = "Сервер реакций не настроен в приложении"
+            return
+        }
         if (!SupabaseAuth.isSignedIn()) {
-            reactionError.value = "Войдите, чтобы оставить реакцию"
+            reactionError.value = "Войдите с email и паролем, чтобы ставить реакции"
+            return
+        }
+        if (checkIn.userCode == currentProfile()?.code) {
+            reactionError.value = "Нельзя ставить реакцию на свою отметку"
+            return
+        }
+        val challenge = repository.snapshot().challenges.firstOrNull { it.id == checkIn.challengeId }
+        val profileCode = currentProfile()?.code
+        if (challenge == null || profileCode == null || !challenge.participantCodes.contains(profileCode)) {
+            reactionError.value = "Реакции могут ставить только участники этого челленджа"
+            return
+        }
+        if (challenge.status() == ChallengeStatus.FINISHED) {
+            reactionError.value = "В завершённом челлендже реакции недоступны"
             return
         }
         val id = ReactionRepository.checkInId(checkIn.challengeId, checkIn.userCode, checkIn.date)

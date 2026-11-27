@@ -475,9 +475,12 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                     }
                     Spacer(Modifier.height(4.dp))
                     val reactionId = "${checkIn.challengeId}|${checkIn.userCode}|${checkIn.date}"
+                    val isOwn = profile?.code == checkIn.userCode
+                    val canReact = joined && !isOwn && status != ChallengeStatus.FINISHED
                     ReactionBar(
                         counts = reactionState.counts[reactionId].orEmpty(),
                         mine = reactionState.mine[reactionId],
+                        enabled = canReact,
                         onToggle = { vm.toggleReaction(checkIn, it) }
                     )
                     Spacer(Modifier.height(6.dp))
@@ -701,6 +704,7 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
 private fun ReactionBar(
     counts: Map<ReactionType, Int>,
     mine: ReactionType?,
+    enabled: Boolean,
     onToggle: (ReactionType) -> Unit
 ) {
     Row(
@@ -712,6 +716,7 @@ private fun ReactionBar(
             val selected = mine == type
             FilterChip(
                 selected = selected,
+                enabled = enabled,
                 onClick = { onToggle(type) },
                 label = {
                     Text(

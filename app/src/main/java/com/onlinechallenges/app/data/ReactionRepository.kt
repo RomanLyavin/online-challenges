@@ -52,10 +52,7 @@ object ReactionRepository {
         val response = client.newCall(authorizedRequest(url).get().build()).execute()
         response.use { resp ->
             val body = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) {
-                Log.w(TAG, "Failed to load reactions: ${resp.code} $body")
-                return@withContext ReactionSummary()
-            }
+            if (!resp.isSuccessful) error(errorMessage(resp.code, body))
             parse(body)
         }
     }

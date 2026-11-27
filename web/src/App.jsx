@@ -2,16 +2,16 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { loadStandings, recentCheckIns } from './lib/data.js'
 import { isSupabaseConfigured, siteUrl, supabase, authMessage } from './lib/supabase.js'
 import {
-  isValidCode,
   isValidEmail,
   isValidPassword,
   normalizeEmail,
   profileFromUser
 } from './lib/auth.js'
 import { REACTIONS, checkInId, loadReactions, toggleReaction } from './lib/reactions.js'
+import { joinChallenge, leaveChallenge, loadParticipation, participantName } from './lib/participation.js'
 import donateImage from './assets/donate.jpg'
 
-const APP_VERSION = '1.6.0'
+const APP_VERSION = '1.6.2'
 const SUPPORT_URL = 'https://t.tb.ru/pm_short/AOdA22MAdsS'
 const TABS = [
   { id: 'home', label: 'Главная', icon: '🏠' },
@@ -36,9 +36,7 @@ function App() {
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured)
   const [route, setRoute] = useState(() => window.location.hash.slice(1) || 'home')
   const [mode, setMode] = useState('login')
-  const [form, setForm] = useState({ email: '', password: '', confirm: '', code: '' })
-  const [pendingEmail, setPendingEmail] = useState('')
-  const [pendingNewEmail, setPendingNewEmail] = useState('')
+  const [form, setForm] = useState({ email: '', password: '', confirm: '' })
   const [profileDraft, setProfileDraft] = useState({ name: '', code: '', email: '' })
   const [emailDraft, setEmailDraft] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -46,6 +44,8 @@ function App() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [summary, setSummary] = useState({ counts: {}, mine: {} })
+  const [participation, setParticipation] = useState([])
+  const [participationTableMissing, setParticipationTableMissing] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('online-challenges-theme') || 'light')
 
   useEffect(() => {
@@ -73,10 +73,7 @@ function App() {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setAuthReady(true)
-      if (data.session && /type=recovery/.test(window.location.href)) {
-        setMode('reset')
-        setPendingEmail(data.session.user.email || '')
-      }
+      // Recovery links are not supported in web-only mode without email confirmation setup.
     })
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
@@ -101,13 +98,35 @@ function App() {
       setSummary(await loadReactions(supabase, ids))
     } catch (err) {
       const text = err?.message || ''
-      if (!/schema cache|checkin_reactions/i.test(text)) setMessage(authMessage(err))
+      if (!/schema cache|relation .* does not exist/i.test(text)) setMessage(authMessage(err))
     }
   }, [ids.join('|')])
+
+  const refreshParticipation = useCallback(async () => {
+    if (!supabase) {
+      setParticipation([])
+      return
+    }
+    try {
+      setParticipation(await loadParticipation(supabase))
+      setParticipationTableMissing(false)
+    } catch (err) {
+      const text = err?.message || ''
+      if (/schema cache|challenge_participants|relation .* does not exist/i.test(text)) {
+        setParticipationTableMissing(true)
+      } else {
+        setMessage(authMessage(err))
+      }
+    }
+  }, [])
 
   useEffect(() => {
     refreshReactions()
   }, [refreshReactions, session?.user?.id])
+
+  useEffect(() => {
+    refreshParticipation()
+  }, [refreshParticipation, session?.user?.id])
 
   function navigate(tab) {
     window.location.hash = tab
@@ -144,32 +163,22 @@ function App() {
         email,
         password: form.password,
         options: {
-          emailRedirectTo: siteUrl(),
           data: { display_name: profileDraft.name || email.split('@')[0] }
         }
       })
       if (signUpError) throw signUpError
       if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        throw new Error('Аккаунт с такой почтой уже есть — войдите или восстановите пароль')
+        throw new Error('Аккаунт с такой почтой уже зарегистрирован')
       }
-      setPendingEmail(email)
-      setMode('verify')
-      setMessage(`Отправили код подтверждения на ${email}`)
-    })
-  }
 
-  async function verifySignup() {
-    if (!isValidCode(form.code)) return setError('Введите шестизначный код из письма')
-    await run(async () => {
-      const { error: verifyError } = await supabase.auth.verifyOtp({
-        email: pendingEmail,
-        token: form.code.trim(),
-        type: 'email'
-      })
-      if (verifyError) throw verifyError
-      setForm((current) => ({ ...current, code: '' }))
-      setMessage('Email подтверждён')
-      setMode('login')
+      if (!data.session) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: form.password })
+        if (signInError) throw signInError
+      }
+
+      setForm({ email, password: '', confirm: '' })
+      setMessage('Аккаунт создан. Почта не подтверждается на сайте.')
+      navigate('account')
     })
   }
 
@@ -188,64 +197,15 @@ function App() {
     })
   }
 
-  async function requestReset() {
-    const email = normalizeEmail(form.email)
-    if (!isValidEmail(email)) return setError('Введите корректный email')
-    await run(async () => {
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: siteUrl()
-      })
-      if (resetError) throw resetError
-      setPendingEmail(email)
-      setMode('reset')
-      setMessage(`Отправили код для сброса на ${email}`)
-    })
-  }
-
-  async function resetPassword() {
-    if (!isValidCode(form.code)) return setError('Введите шестизначный код из письма')
-    if (!isValidPassword(form.password)) return setError('Пароль должен быть не короче 6 символов')
-    if (form.password !== form.confirm) return setError('Пароли не совпадают')
-    await run(async () => {
-      const { error: verifyError } = await supabase.auth.verifyOtp({
-        email: pendingEmail,
-        token: form.code.trim(),
-        type: 'recovery'
-      })
-      if (verifyError) throw verifyError
-      const { error: updateError } = await supabase.auth.updateUser({ password: form.password })
-      if (updateError) throw updateError
-      setForm({ email: '', password: '', confirm: '', code: '' })
-      setMessage('Пароль обновлён')
-      setMode('login')
-    })
-  }
-
   async function changeEmail() {
     const email = normalizeEmail(emailDraft)
     if (!isValidEmail(email)) return setError('Введите корректный email')
     await run(async () => {
       const { error: updateError } = await supabase.auth.updateUser({ email })
       if (updateError) throw updateError
-      setPendingNewEmail(email)
-      setMode('confirm-email')
-      setMessage(`Отправили код подтверждения на ${email}`)
-    })
-  }
-
-  async function confirmEmailChange() {
-    if (!isValidCode(form.code)) return setError('Введите шестизначный код из письма')
-    await run(async () => {
-      const { error: verifyError } = await supabase.auth.verifyOtp({
-        email: pendingNewEmail,
-        token: form.code.trim(),
-        type: 'email_change'
-      })
-      if (verifyError) throw verifyError
-      setForm((current) => ({ ...current, code: '' }))
-      setPendingNewEmail('')
+      setEmailDraft(email)
+      setProfileDraft((current) => ({ ...current, email }))
       setMessage('Email изменён')
-      setMode('account')
     })
   }
 
@@ -280,15 +240,63 @@ function App() {
     })
   }
 
-  async function react(item, type) {
+  async function react(item, type, challenge) {
     if (!session) {
       setError('Войдите, чтобы оставить реакцию')
       navigate('account')
       return
     }
+    const profile = profileFromUser(session.user)
+    const ownCode = profile.code
+    if (ownCode && item.code === ownCode) {
+      setError('Нельзя ставить реакцию на свою отметку')
+      return
+    }
+    if (challenge?.status === 'FINISHED') {
+      setError('В завершённом челлендже реакции недоступны')
+      return
+    }
+    const challengeInfo = challenge || (standings?.challenges || []).find((c) => c.id === item.challengeId)
+    const joinedFromWeb = (participation || []).some(
+      (row) => row.challenge_id === item.challengeId && row.user_id === session.user.id
+    )
+    const joinedFromStandings = Boolean(
+      profile.code && (challengeInfo?.participants || []).some((p) => p.code === profile.code)
+    )
+    if (!joinedFromWeb && !joinedFromStandings) {
+      setError('Реакции могут ставить только участники этого челленджа')
+      return
+    }
     await run(async () => {
       await toggleReaction(supabase, session.user.id, checkInId(item.challengeId, item.code, item.date), type)
       await refreshReactions()
+    })
+  }
+
+  async function join(challengeId) {
+    if (!session) {
+      setError('Войдите, чтобы присоединиться к челленджу')
+      navigate('account')
+      return
+    }
+    await run(async () => {
+      const name = participantName(session.user) || normalizeEmail(session.user.email || '')
+      await joinChallenge(supabase, session.user.id, name, challengeId)
+      await refreshParticipation()
+      setMessage('Вы присоединились к челленджу')
+    })
+  }
+
+  async function leave(challengeId) {
+    if (!session) {
+      setError('Войдите, чтобы выйти из челленджа')
+      navigate('account')
+      return
+    }
+    await run(async () => {
+      await leaveChallenge(supabase, session.user.id, challengeId)
+      await refreshParticipation()
+      setMessage('Вы вышли из челленджа')
     })
   }
 
@@ -331,7 +339,12 @@ function App() {
             standings={standings}
             checkIns={checkIns}
             summary={summary}
+            participation={participation}
+            participationTableMissing={participationTableMissing}
+            sessionUser={session?.user}
             onReact={react}
+            onJoin={join}
+            onLeave={leave}
             onAccount={() => navigate('account')}
           />
         )}
@@ -351,9 +364,7 @@ function App() {
             setEmailDraft={setEmailDraft}
             newPassword={newPassword}
             setNewPassword={setNewPassword}
-            pendingEmail={pendingEmail}
-            pendingNewEmail={pendingNewEmail}
-            handlers={{ register, verifySignup, login, requestReset, resetPassword, changeEmail, confirmEmailChange, saveProfile, savePassword, signOut }}
+            handlers={{ register, login, changeEmail, saveProfile, savePassword, signOut }}
           />
         )}
         {tab === 'support' && <SupportView />}
@@ -377,11 +388,22 @@ function App() {
   )
 }
 
-function HomeView({ standings, checkIns, summary, onReact, onAccount }) {
+function HomeView({ standings, checkIns, summary, participation, participationTableMissing, sessionUser, onReact, onJoin, onLeave, onAccount }) {
+  const [challengeFilter, setChallengeFilter] = useState('all')
   if (!standings) return <Loading />
   const users = [...(standings.users || [])].sort((a, b) => number(b.points) - number(a.points)).slice(0, 10)
   const totals = standings.totals || {}
   const totalPoints = (standings.users || []).reduce((sum, user) => sum + number(user.points), 0)
+  const challengeFilters = [
+    { id: 'all', label: 'Все' },
+    { id: 'active', label: 'Идут сейчас' },
+    { id: 'finished', label: 'Завершены' }
+  ]
+  const challenges = (standings.challenges || []).filter((challenge) => {
+    if (challengeFilter === 'active') return challenge.status === 'ACTIVE'
+    if (challengeFilter === 'finished') return challenge.status === 'FINISHED'
+    return true
+  })
 
   return (
     <>
@@ -421,16 +443,33 @@ function HomeView({ standings, checkIns, summary, onReact, onAccount }) {
 
       <section>
         <SectionTitle title="Челленджи" subtitle="Открытые и приватные" />
+        <div className="filter-row" role="group" aria-label="Отбор челленджей">
+          {challengeFilters.map((filter) => (
+            <button
+              key={filter.id}
+              type="button"
+              className={challengeFilter === filter.id ? 'filter-button active' : 'filter-button'}
+              onClick={() => setChallengeFilter(filter.id)}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
         <div className="challenge-grid">
-          {(standings.challenges || []).map((challenge) => (
+          {challenges.map((challenge) => (
             <ChallengeCard
               key={challenge.id}
               challenge={challenge}
               summary={summary}
+              participation={participation}
+              participationTableMissing={participationTableMissing}
+              sessionUser={sessionUser}
               onReact={onReact}
+              onJoin={onJoin}
+              onLeave={onLeave}
             />
           ))}
-          {!standings.challenges?.length && <Empty text="Челленджей пока нет" />}
+          {!challenges.length && <Empty text="Челленджей по этому отбору нет" />}
         </div>
       </section>
 
@@ -443,6 +482,10 @@ function HomeView({ standings, checkIns, summary, onReact, onAccount }) {
                 key={`${item.challengeId}-${item.code}-${item.date}-${index}`}
                 item={item}
                 summary={summary}
+                participation={participation}
+                participationTableMissing={participationTableMissing}
+                sessionUser={sessionUser}
+                challenge={(standings.challenges || []).find((c) => c.id === item.challengeId)}
                 onReact={onReact}
               />
             ))}
@@ -453,8 +496,11 @@ function HomeView({ standings, checkIns, summary, onReact, onAccount }) {
   )
 }
 
-function ChallengeCard({ challenge, summary, onReact }) {
+function ChallengeCard({ challenge, summary, participation, participationTableMissing, sessionUser, onReact, onJoin, onLeave }) {
   const isPrivate = challenge.visibility === 'PRIVATE'
+  const joinedWeb = (participation || []).filter((item) => item.challenge_id === challenge.id)
+  const isJoined = Boolean(sessionUser && joinedWeb.some((item) => item.user_id === sessionUser.id))
+  const participantCount = (challenge.participantCount ?? (challenge.participants || []).length) + joinedWeb.length
   return (
     <article className="card challenge-card">
       <div className="challenge-head">
@@ -463,7 +509,24 @@ function ChallengeCard({ challenge, summary, onReact }) {
           <h3>{challenge.title}</h3>
           {challenge.description && <p>{challenge.description}</p>}
         </div>
-        <b className="points">{formatNumber(challenge.participantCount ?? (challenge.participants || []).length)} уч.</b>
+        <b className="points">{formatNumber(participantCount)} уч.</b>
+      </div>
+      <div className="join-row">
+        {participationTableMissing ? (
+          <small className="muted">Вступление с сайта появится после настройки Supabase.</small>
+        ) : isJoined ? (
+          <>
+            <span className="chip">Вы участвуете</span>
+            <button className="text-button" type="button" onClick={() => onLeave(challenge.id)}>Выйти</button>
+          </>
+        ) : (
+          <button className="secondary-button" type="button" onClick={() => onJoin(challenge.id)}>
+            {sessionUser ? 'Присоединиться' : 'Войти, чтобы присоединиться'}
+          </button>
+        )}
+        {!participationTableMissing && !!joinedWeb.length && (
+          <small className="muted">На сайте: {joinedWeb.map((item) => item.user_name || 'Участник').join(', ')}</small>
+        )}
       </div>
       {!isPrivate && (
         <>
@@ -485,6 +548,10 @@ function ChallengeCard({ challenge, summary, onReact }) {
                 key={`${item.code}-${item.date}-${index}`}
                 item={{ ...item, challengeId: challenge.id }}
                 summary={summary}
+                participation={participation}
+                participationTableMissing={participationTableMissing}
+                sessionUser={sessionUser}
+                challenge={challenge}
                 onReact={onReact}
                 compact
               />
@@ -497,10 +564,20 @@ function ChallengeCard({ challenge, summary, onReact }) {
   )
 }
 
-function RecentRow({ item, summary, onReact, compact }) {
+function RecentRow({ item, summary, participation, participationTableMissing, sessionUser, challenge, onReact, compact }) {
   const id = item.checkInId || checkInId(item.challengeId, item.code, item.date)
   const counts = summary.counts[id] || {}
   const mine = summary.mine[id]
+  const ownCode = profileFromUser(sessionUser).code
+  const joinedFromWeb = Boolean(sessionUser && (participation || []).some(
+    (row) => row.challenge_id === item.challengeId && row.user_id === sessionUser.id
+  ))
+  const joinedFromStandings = Boolean(
+    ownCode && (challenge?.participants || []).some((p) => p.code === ownCode)
+  )
+  const joined = joinedFromWeb || joinedFromStandings
+  const isOwn = Boolean(ownCode && item.code === ownCode)
+  const canReact = !participationTableMissing && joined && !isOwn && challenge?.status !== 'FINISHED'
   return (
     <div className={compact ? 'recent-row compact' : 'recent-row'}>
       <div className="grow">
@@ -520,8 +597,9 @@ function RecentRow({ item, summary, onReact, compact }) {
             key={reaction.key}
             type="button"
             title={reaction.label}
+            disabled={!canReact}
             className={mine === reaction.key ? 'reaction selected' : 'reaction'}
-            onClick={() => onReact(item, reaction.key)}
+            onClick={() => onReact(item, reaction.key, challenge)}
           >
             {reaction.emoji}<small>{counts[reaction.key] || 0}</small>
           </button>
@@ -563,7 +641,7 @@ function AccountView(props) {
   const {
     session, authReady, mode, setMode, form, updateForm, busy,
     profileDraft, setProfileDraft, emailDraft, setEmailDraft,
-    newPassword, setNewPassword, pendingEmail, pendingNewEmail, handlers
+    newPassword, setNewPassword, handlers
   } = props
 
   if (!authReady) return <Loading />
@@ -584,7 +662,6 @@ function AccountView(props) {
         form={form}
         updateForm={updateForm}
         busy={busy}
-        pendingEmail={pendingEmail}
         handlers={handlers}
       />
     )
@@ -602,6 +679,9 @@ function AccountView(props) {
           </div>
         </div>
         <h3>Профиль</h3>
+        <div className="card muted" style={{ padding: 12, marginBottom: 12 }}>
+          Регистрация и работа с профилем на сайте идут без подтверждения почты. Сброс пароля на сайте недоступен.
+        </div>
         <label>Имя
           <input value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} />
         </label>
@@ -618,48 +698,37 @@ function AccountView(props) {
         <label>Новый email
           <input type="email" value={emailDraft} onChange={(event) => setEmailDraft(event.target.value)} />
         </label>
-        <button className="secondary-button" type="button" disabled={busy} onClick={handlers.changeEmail}>Отправить код на новый email</button>
+        <button className="secondary-button" type="button" disabled={busy} onClick={handlers.changeEmail}>Изменить email</button>
         <button className="text-button" type="button" onClick={handlers.signOut}>Выйти из аккаунта</button>
       </div>
-
-      {(mode === 'confirm-email' || pendingNewEmail) && (
-        <div className="card account-card">
-          <h2>Подтверждение email</h2>
-          <p>Введите код, отправленный на {pendingNewEmail || 'новый адрес'}.</p>
-          <CodeField value={form.code} onChange={(value) => updateForm('code', value)} />
-          <button className="primary-button" type="button" disabled={busy} onClick={handlers.confirmEmailChange}>Подтвердить код</button>
-          <button className="text-button" type="button" onClick={() => setMode('account')}>Отменить</button>
-        </div>
-      )}
     </section>
   )
 }
 
-function AuthPanel({ mode, setMode, form, updateForm, busy, pendingEmail, handlers }) {
+function AuthPanel({ mode, setMode, form, updateForm, busy, handlers }) {
   const tabs = [
     { id: 'login', label: 'Вход' },
-    { id: 'register', label: 'Регистрация' },
-    { id: 'forgot', label: 'Забыл пароль' }
+    { id: 'register', label: 'Регистрация' }
   ]
-  const visibleTabs = ['verify', 'reset'].includes(mode) ? [] : tabs
 
   return (
     <section className="card account-card">
-      <h2>{mode === 'register' ? 'Регистрация' : mode === 'forgot' ? 'Восстановление пароля' : mode === 'verify' ? 'Подтверждение email' : mode === 'reset' ? 'Новый пароль' : 'Вход'}</h2>
-      {visibleTabs.length > 0 && (
-        <div className="auth-tabs">
-          {visibleTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={mode === tab.id ? 'auth-tab active' : 'auth-tab'}
-              onClick={() => setMode(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <h2>{mode === 'register' ? 'Регистрация' : 'Вход'}</h2>
+      <div className="auth-tabs">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={mode === tab.id ? 'auth-tab active' : 'auth-tab'}
+            onClick={() => setMode(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <div className="card muted" style={{ padding: 12, marginBottom: 12 }}>
+        Регистрация и работа с профилем на сайте идут без подтверждения почты. Сброс пароля на сайте недоступен.
+      </div>
 
       {mode === 'login' && (
         <>
@@ -671,39 +740,10 @@ function AuthPanel({ mode, setMode, form, updateForm, busy, pendingEmail, handle
 
       {mode === 'register' && (
         <>
-          <p className="muted">Подтверждение регистрации — шестизначным кодом из письма. Код можно ввести на компьютере.</p>
           <Field label="Email" type="email" value={form.email} onChange={(value) => updateForm('email', value)} />
           <Field label="Пароль" type="password" value={form.password} onChange={(value) => updateForm('password', value)} />
           <Field label="Повторите пароль" type="password" value={form.confirm} onChange={(value) => updateForm('confirm', value)} />
           <button className="primary-button" type="button" disabled={busy} onClick={handlers.register}>Зарегистрироваться</button>
-        </>
-      )}
-
-      {mode === 'verify' && (
-        <>
-          <p>Код отправлен на {pendingEmail}. Введите шестизначный код из письма.</p>
-          <CodeField value={form.code} onChange={(value) => updateForm('code', value)} />
-          <button className="primary-button" type="button" disabled={busy} onClick={handlers.verifySignup}>Подтвердить код</button>
-          <button className="text-button" type="button" onClick={() => setMode('login')}>Вернуться ко входу</button>
-        </>
-      )}
-
-      {mode === 'forgot' && (
-        <>
-          <p>Отправим код для сброса пароля на вашу почту.</p>
-          <Field label="Email" type="email" value={form.email} onChange={(value) => updateForm('email', value)} />
-          <button className="primary-button" type="button" disabled={busy} onClick={handlers.requestReset}>Отправить код</button>
-          <button className="text-button" type="button" onClick={() => setMode('login')}>Вернуться ко входу</button>
-        </>
-      )}
-
-      {mode === 'reset' && (
-        <>
-          <p>Код для сброса отправлен на {pendingEmail}. Введите код и новый пароль.</p>
-          <CodeField value={form.code} onChange={(value) => updateForm('code', value)} />
-          <Field label="Новый пароль" type="password" value={form.password} onChange={(value) => updateForm('password', value)} />
-          <Field label="Повторите пароль" type="password" value={form.confirm} onChange={(value) => updateForm('confirm', value)} />
-          <button className="primary-button" type="button" disabled={busy} onClick={handlers.resetPassword}>Сохранить пароль</button>
         </>
       )}
     </section>
@@ -757,15 +797,7 @@ function Field({ label, type = 'text', value, onChange }) {
   )
 }
 
-function CodeField({ value, onChange }) {
-  return (
-    <Field
-      label="Код из письма"
-      value={value}
-      onChange={(next) => onChange(next.replace(/\D/g, '').slice(0, 6))}
-    />
-  )
-}
+
 
 function SectionTitle({ title, subtitle }) {
   return (
