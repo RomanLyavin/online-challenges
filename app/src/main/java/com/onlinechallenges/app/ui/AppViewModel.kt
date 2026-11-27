@@ -235,7 +235,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             message.contains("network", ignoreCase = true) || message.contains("timeout", ignoreCase = true) ->
                 "Нет сети. Проверьте подключение и попробуйте снова"
             message.isNotBlank() -> message
-            else -> "Не удалось выполнить вход"
+            else -> "Не удалось выполнить вход: ${error::class.simpleName ?: "ошибка"}"
         }
     }
 
@@ -389,15 +389,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val local = auth.login(normalized, password)
                 if (local is AuthResult.Success) {
                     if (!SupabaseAuth.isSignedIn()) {
-                        runCatching { SupabaseAuth.signIn(normalized, password) }
-                            .onSuccess {
+                        val repaired = runCatching { SupabaseAuth.signIn(normalized, password) }
+                            .mapCatching {
                                 val user = SupabaseAuth.currentUser()
-                                if (user != null) {
-                                    adoptSupabaseUser(normalized, user.id)
-                                    return@launch
-                                }
+                                    ?: error("Supabase sign-in не вернул пользователя")
+                                if (!SupabaseAuth.isSignedIn()) error("Supabase сессия не создана после входа")
+                                user
                             }
-                            .onFailure { supaError ->
+                            .onSuccess { user ->
+                                adoptSupabaseUser(normalized, user.id)
+                            }
+                        if (repaired.isSuccess) return@launch
+                        repaired.onFailure { supaError ->
                                 // Аккаунта в Supabase может не быть (старый локальный пользователь) —
                                 // пробуем создать его теми же учетными данными.
                                 runCatching { SupabaseAuth.signUp(normalized, password) }
@@ -407,10 +410,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                         } == true
                                         if (created != null && (createdLongAgo || (created.identities.isNullOrEmpty() && !SupabaseAuth.isSignedIn()))) {
                                             // Аккаунт в Supabase уже существует, но пароль не подошёл.
+                                            val resetSent = runCatching { SupabaseAuth.requestPasswordReset(normalized) }.isSuccess
                                             withContext(Dispatchers.Main) {
                                                 openAfterLogin()
-                                                authError.value = "Вход выполнен локально. Для реакций войдите в Supabase-аккаунт: " +
-                                                    (supaError.message ?: "проверьте пароль или восстановите пароль")
+                                                val msg = if (resetSent) {
+                                                    "Вход выполнен локально. Supabase-пароль отличается: ссылка для сброса отправлена на $normalized. Проверьте почту и папку «Спам», затем войдите снова."
+                                                } else {
+                                                    "Вход выполнен локально. Для реакций войдите в Supabase-аккаунт: " +
+                                                        (supaError.message ?: "проверьте пароль или восстановите пароль")
+                                                }
+                                                uiMessage.value = msg
+                                                authError.value = msg
                                             }
                                             return@launch
                                         }
@@ -426,20 +436,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                         withContext(Dispatchers.Main) {
                                             openAfterLogin()
                                             screenStack += Screen.Verify
-                                            uiMessage.value = "Для реакций подтвердите email: письмо отправлено на $normalized"
+                                            uiMessage.value = "Для реакций подтвердите email: письмо отправлено на $normalized. Проверьте почту и папку «Спам»."
                                         }
                                         return@launch
                                     }
                                     .onFailure {
                                         withContext(Dispatchers.Main) {
                                             openAfterLogin()
-                                            authError.value = "Вход выполнен локально. Для реакций не удалось подключить Supabase: ${authMessage(supaError)}"
+                                            val msg = "Вход выполнен локально. Для реакций не удалось подключить Supabase: ${authMessage(supaError)}"
+                                            uiMessage.value = msg
+                                            authError.value = msg
                                         }
                                         return@launch
                                     }
                             }
                     }
-                    withContext(Dispatchers.Main) { openAfterLogin() }
+                    withContext(Dispatchers.Main) {
+                        openAfterLogin()
+                        if (!SupabaseAuth.isSignedIn()) {
+                            val msg = "Вход выполнен локально. Для реакций не удалось подключить Supabase-сессию; попробуйте войти ещё раз или восстановите пароль."
+                            uiMessage.value = msg
+                            authError.value = msg
+                        }
+                    }
                 } else {
                     withContext(Dispatchers.Main) { authError.value = authMessage(error) }
                 }

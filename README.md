@@ -9,7 +9,7 @@ Android-приложение и публичный сайт для челлен�
 места.
 
 - Сайт: <https://romanlyavin.github.io/online-challenges/>
-- APK: [OnlineChallenges-1.6.4.apk](OnlineChallenges-1.6.4.apk) · [последний релиз](https://github.com/RomanLyavin/online-challenges/releases/latest)
+- APK: [OnlineChallenges-1.6.5.apk](OnlineChallenges-1.6.5.apk) · [последний релиз](https://github.com/RomanLyavin/online-challenges/releases/latest)
 - Пакет: `com.onlinechallenges.app`
 - Минимальная версия Android: 8.0 (API 26), целевая — API 35
 
@@ -255,6 +255,16 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 
 Готовый APK: `app\build\outputs\apk\release\app-release.apk`.
 
+## Изменения 1.6.5
+
+- Android: усилена диагностика/восстановление Supabase-сессии при входе. Если
+  локальный вход успешен, но Supabase `signIn` не создал сессию, приложение
+  больше не молчит — показывает явное сообщение и пытается repair-flow. Для
+  случая «Supabase-аккаунт существует, но пароль другой» пробует отправить
+  письмо сброса пароля и сообщает об этом.
+- Данные: профиль `U-T6ECNE` возвращён на корректный emailHash
+  `veronikaromanovna2025@gmail.com` (исправлена моя ошибочная замена в 1.6.4).
+
 ## Изменения 1.6.4
 
 - Android: исправлен вход для старых локальных аккаунтов. Если локальный вход
@@ -421,6 +431,14 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 - Повторный ввод кода приглашения больше не перезаписывает данные челленджа.
 - Организатор может изменить дату окончания и удалить челлендж.
 - Удалённые челленджи и их отметки не возвращаются при синхронизации.
+
+## Проверка APK 1.6.5
+
+- Размер: 10 692 692 байт (10,20 МиБ)
+- SHA-256: `E2BA2C79D6624D17C26D2202983E27DF174C3219A079FD7AE2BFC47BA63E0DFA`
+- Сертификат подписи SHA-256: `9fc6a9cf0ca53fbb668b21f6986ebec27c929a29975903d8169308aa08aee2d8`
+- Подпись APK v2, выравнивание 4 байта
+- Пакет `com.onlinechallenges.app`, versionCode 18, versionName 1.6.5, targetSdk 35
 
 ## Проверка APK 1.6.4
 
