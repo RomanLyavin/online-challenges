@@ -20,6 +20,31 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
+async function emailHash(email: string): Promise<string> {
+  const normalized = `online-challenges:email:${email.trim().toLowerCase()}`
+  const bytes = new TextEncoder().encode(normalized)
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function emailKnownInPublicProfiles(email: string): Promise<boolean> {
+  try {
+    const hash = await emailHash(email)
+    const response = await fetch(
+      'https://raw.githubusercontent.com/RomanLyavin/online-challenges/main/data/profiles.json',
+      { headers: { Accept: 'application/json' } },
+    )
+    if (!response.ok) return false
+    const data = await response.json()
+    const profiles = Array.isArray(data?.profiles) ? data.profiles : []
+    return profiles.some((profile: { emailHash?: string | null }) =>
+      String(profile?.emailHash || '').toLowerCase() === hash,
+    )
+  } catch {
+    return false
+  }
+}
+
 Deno.serve(async (req) => {
   const origin = req.headers.get('Origin')
   const allowedOrigin = origin && ALLOWED_ORIGINS.has(origin) ? origin : null
@@ -57,6 +82,12 @@ Deno.serve(async (req) => {
 
   if (!isValidEmail(email)) return json({ error: 'Введите корректный email' }, 400, allowedOrigin)
   if (password.length < 6) return json({ error: 'Пароль должен быть не короче 6 символов' }, 400, allowedOrigin)
+
+  // Доп. защита от дублей для старых/локальных профилей, которые уже есть в публичных данных,
+  // но могли быть не привязаны к Supabase Auth.
+  if (await emailKnownInPublicProfiles(email)) {
+    return json({ error: 'Аккаунт с такой почтой уже зарегистрирован' }, 409, allowedOrigin)
+  }
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },

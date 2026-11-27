@@ -9,7 +9,7 @@ Android-приложение и публичный сайт для челлен�
 места.
 
 - Сайт: <https://romanlyavin.github.io/online-challenges/>
-- APK: [OnlineChallenges-1.6.3.apk](OnlineChallenges-1.6.3.apk) · [последний релиз](https://github.com/RomanLyavin/online-challenges/releases/latest)
+- APK: [OnlineChallenges-1.6.4.apk](OnlineChallenges-1.6.4.apk) · [последний релиз](https://github.com/RomanLyavin/online-challenges/releases/latest)
 - Пакет: `com.onlinechallenges.app`
 - Минимальная версия Android: 8.0 (API 26), целевая — API 35
 
@@ -255,6 +255,21 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 
 Готовый APK: `app\build\outputs\apk\release\app-release.apk`.
 
+## Изменения 1.6.4
+
+- Android: исправлен вход для старых локальных аккаунтов. Если локальный вход
+  успешен, но Supabase-сессии нет, приложение пытается войти/привязать Supabase
+  теми же email+паролем. При включённом `Confirm email = ON` может потребоваться
+  подтверждение email; в этом случае пользователь получает понятное сообщение и
+  экран подтверждения. Это возвращает возможность ставить реакции старым
+  пользователям.
+- Web/Supabase: `web-signup` теперь дополнительно проверяет emailHash в
+  публичном `data/profiles.json`, чтобы не создавать дубли для старых профилей,
+  ещё не привязанных к Supabase Auth. После обновления кода функции её нужно
+  заново задеплоить в Supabase.
+- Данные: обновлён публичный профиль `U-T6ECNE` (emailHash заменён на
+  `veronikaromanovna2026@gmail.com`), обновлены bucket/index/fingerprint.
+
 ## Изменения 1.6.3
 
 - Веб-регистрация без письма через Supabase Edge Function `web-signup`:
@@ -406,6 +421,14 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 - Повторный ввод кода приглашения больше не перезаписывает данные челленджа.
 - Организатор может изменить дату окончания и удалить челлендж.
 - Удалённые челленджи и их отметки не возвращаются при синхронизации.
+
+## Проверка APK 1.6.4
+
+- Размер: 10 692 692 байт (10,20 МиБ)
+- SHA-256: `B17E15DB2AB8CA273F141F86976E5A25C8B0DCA96D038919E2876A4A76ACF1D0`
+- Сертификат подписи SHA-256: `9fc6a9cf0ca53fbb668b21f6986ebec27c929a29975903d8169308aa08aee2d8`
+- Подпись APK v2, выравнивание 4 байта
+- Пакет `com.onlinechallenges.app`, versionCode 17, versionName 1.6.4, targetSdk 35
 
 ## Проверка APK 1.6.3
 

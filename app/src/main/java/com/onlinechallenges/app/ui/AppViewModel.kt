@@ -388,6 +388,57 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: Exception) {
                 val local = auth.login(normalized, password)
                 if (local is AuthResult.Success) {
+                    if (!SupabaseAuth.isSignedIn()) {
+                        runCatching { SupabaseAuth.signIn(normalized, password) }
+                            .onSuccess {
+                                val user = SupabaseAuth.currentUser()
+                                if (user != null) {
+                                    adoptSupabaseUser(normalized, user.id)
+                                    return@launch
+                                }
+                            }
+                            .onFailure { supaError ->
+                                // Аккаунта в Supabase может не быть (старый локальный пользователь) —
+                                // пробуем создать его теми же учетными данными.
+                                runCatching { SupabaseAuth.signUp(normalized, password) }
+                                    .onSuccess { created ->
+                                        val createdLongAgo = created?.createdAt?.epochSeconds?.let { ts ->
+                                            ts * 1000 < System.currentTimeMillis() - 6 * 60 * 60 * 1000
+                                        } == true
+                                        if (created != null && (createdLongAgo || (created.identities.isNullOrEmpty() && !SupabaseAuth.isSignedIn()))) {
+                                            // Аккаунт в Supabase уже существует, но пароль не подошёл.
+                                            withContext(Dispatchers.Main) {
+                                                openAfterLogin()
+                                                authError.value = "Вход выполнен локально. Для реакций войдите в Supabase-аккаунт: " +
+                                                    (supaError.message ?: "проверьте пароль или восстановите пароль")
+                                            }
+                                            return@launch
+                                        }
+                                        if (SupabaseAuth.isSignedIn()) {
+                                            val user = SupabaseAuth.currentUser()
+                                            if (user != null) {
+                                                adoptSupabaseUser(normalized, user.id)
+                                                return@launch
+                                            }
+                                        }
+                                        // Confirm email ON: сессии нет, письмо подтверждения отправлено.
+                                        repository.update { it.copy(pendingEmail = normalized, pending = null) }
+                                        withContext(Dispatchers.Main) {
+                                            openAfterLogin()
+                                            screenStack += Screen.Verify
+                                            uiMessage.value = "Для реакций подтвердите email: письмо отправлено на $normalized"
+                                        }
+                                        return@launch
+                                    }
+                                    .onFailure {
+                                        withContext(Dispatchers.Main) {
+                                            openAfterLogin()
+                                            authError.value = "Вход выполнен локально. Для реакций не удалось подключить Supabase: ${authMessage(supaError)}"
+                                        }
+                                        return@launch
+                                    }
+                            }
+                    }
                     withContext(Dispatchers.Main) { openAfterLogin() }
                 } else {
                     withContext(Dispatchers.Main) { authError.value = authMessage(error) }
