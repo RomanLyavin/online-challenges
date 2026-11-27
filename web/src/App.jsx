@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { loadStandings, recentCheckIns } from './lib/data.js'
-import { isSupabaseConfigured, siteUrl, supabase, authMessage } from './lib/supabase.js'
+import { isSupabaseConfigured, supabase, authMessage, webSignUp } from './lib/supabase.js'
 import {
   isValidEmail,
   isValidPassword,
@@ -11,7 +11,7 @@ import { REACTIONS, checkInId, loadReactions, toggleReaction } from './lib/react
 import { joinChallenge, leaveChallenge, loadParticipation, participantName } from './lib/participation.js'
 import donateImage from './assets/donate.jpg'
 
-const APP_VERSION = '1.6.2'
+const APP_VERSION = '1.6.3'
 const SUPPORT_URL = 'https://t.tb.ru/pm_short/AOdA22MAdsS'
 const TABS = [
   { id: 'home', label: 'Главная', icon: '🏠' },
@@ -159,25 +159,11 @@ function App() {
     if (form.password !== form.confirm) return setError('Пароли не совпадают')
     if (!supabase) return setError('Личный кабинет не настроен на этом сайте')
     await run(async () => {
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password: form.password,
-        options: {
-          data: { display_name: profileDraft.name || email.split('@')[0] }
-        }
-      })
-      if (signUpError) throw signUpError
-      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        throw new Error('Аккаунт с такой почтой уже зарегистрирован')
-      }
-
-      if (!data.session) {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: form.password })
-        if (signInError) throw signInError
-      }
-
+      await webSignUp(email, form.password, profileDraft.name || email.split('@')[0])
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: form.password })
+      if (signInError) throw signInError
       setForm({ email, password: '', confirm: '' })
-      setMessage('Аккаунт создан. Почта не подтверждается на сайте.')
+      setMessage('Аккаунт создан. Вы вошли в личный кабинет.')
       navigate('account')
     })
   }
@@ -198,15 +184,7 @@ function App() {
   }
 
   async function changeEmail() {
-    const email = normalizeEmail(emailDraft)
-    if (!isValidEmail(email)) return setError('Введите корректный email')
-    await run(async () => {
-      const { error: updateError } = await supabase.auth.updateUser({ email })
-      if (updateError) throw updateError
-      setEmailDraft(email)
-      setProfileDraft((current) => ({ ...current, email }))
-      setMessage('Email изменён')
-    })
+    setError('Смена email на сайте недоступна, пока в Supabase включено подтверждение email. Измените email в Android-приложении.')
   }
 
   async function saveProfile() {
@@ -680,7 +658,7 @@ function AccountView(props) {
         </div>
         <h3>Профиль</h3>
         <div className="card muted" style={{ padding: 12, marginBottom: 12 }}>
-          Регистрация и работа с профилем на сайте идут без подтверждения почты. Сброс пароля на сайте недоступен.
+          Регистрация на сайте создаёт аккаунт без письма подтверждения через защищённую функцию Supabase. Сброс пароля и смена email на сайте недоступны, пока подтверждение email в Supabase включено для Android.
         </div>
         <label>Имя
           <input value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} />
@@ -696,9 +674,10 @@ function AccountView(props) {
         </label>
         <button className="secondary-button" type="button" disabled={busy} onClick={handlers.savePassword}>Обновить пароль</button>
         <label>Новый email
-          <input type="email" value={emailDraft} onChange={(event) => setEmailDraft(event.target.value)} />
+          <input type="email" value={emailDraft} disabled onChange={(event) => setEmailDraft(event.target.value)} />
         </label>
-        <button className="secondary-button" type="button" disabled={busy} onClick={handlers.changeEmail}>Изменить email</button>
+        <button className="secondary-button" type="button" disabled onClick={handlers.changeEmail}>Изменить email в приложении</button>
+        <small className="muted">Смена email на сайте отключена, чтобы не ломать подтверждение почты в Android.</small>
         <button className="text-button" type="button" onClick={handlers.signOut}>Выйти из аккаунта</button>
       </div>
     </section>
@@ -727,7 +706,7 @@ function AuthPanel({ mode, setMode, form, updateForm, busy, handlers }) {
         ))}
       </div>
       <div className="card muted" style={{ padding: 12, marginBottom: 12 }}>
-        Регистрация и работа с профилем на сайте идут без подтверждения почты. Сброс пароля на сайте недоступен.
+        Регистрация на сайте создаёт аккаунт без письма подтверждения через защищённую функцию Supabase. Сброс пароля на сайте недоступен.
       </div>
 
       {mode === 'login' && (

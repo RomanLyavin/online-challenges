@@ -9,7 +9,7 @@ Android-приложение и публичный сайт для челлен�
 места.
 
 - Сайт: <https://romanlyavin.github.io/online-challenges/>
-- APK: [OnlineChallenges-1.6.2.apk](OnlineChallenges-1.6.2.apk) · [последний релиз](https://github.com/RomanLyavin/online-challenges/releases/latest)
+- APK: [OnlineChallenges-1.6.3.apk](OnlineChallenges-1.6.3.apk) · [последний релиз](https://github.com/RomanLyavin/online-challenges/releases/latest)
 - Пакет: `com.onlinechallenges.app`
 - Минимальная версия Android: 8.0 (API 26), целевая — API 35
 
@@ -255,6 +255,18 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 
 Готовый APK: `app\build\outputs\apk\release\app-release.apk`.
 
+## Изменения 1.6.3
+
+- Веб-регистрация без письма через Supabase Edge Function `web-signup`:
+  функция создаёт пользователя через Admin API с `email_confirm: true`,
+  сайт затем выполняет `signInWithPassword`. Это позволяет оставить
+  **Confirm email = ON** в Supabase, чтобы Android-подтверждение email
+  продолжало работать.
+- Смена email и сброс пароля на сайте отключены/пояснены в UI, потому что при
+  включённом подтверждении email они требуют почтовый поток. Android-сценарии
+  подтверждения не изменялись.
+- Добавлена миграция/инструкция по деплою `supabase/functions/web-signup`.
+
 ## Изменения 1.6.2
 
 - Веб-версия: регистрация и работа с профилем идут без подтверждения почты.
@@ -394,6 +406,14 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 - Повторный ввод кода приглашения больше не перезаписывает данные челленджа.
 - Организатор может изменить дату окончания и удалить челлендж.
 - Удалённые челленджи и их отметки не возвращаются при синхронизации.
+
+## Проверка APK 1.6.3
+
+- Размер: 10 692 692 байт (10,20 МиБ)
+- SHA-256: `F01E96D100320B53EA263544F1F125CC91E179D38257BA17509367192AD6335B`
+- Сертификат подписи SHA-256: `9fc6a9cf0ca53fbb668b21f6986ebec27c929a29975903d8169308aa08aee2d8`
+- Подпись APK v2, выравнивание 4 байта
+- Пакет `com.onlinechallenges.app`, versionCode 16, versionName 1.6.3, targetSdk 35
 
 ## Проверка APK 1.6.2
 

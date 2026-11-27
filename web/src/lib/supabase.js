@@ -19,6 +19,34 @@ export const supabase = isSupabaseConfigured
     })
   : null
 
+export async function webSignUp(email, password, name) {
+  if (!isSupabaseConfigured) throw new Error('Личный кабинет не настроен на этом сайте')
+  const response = await fetch(`${url}/functions/v1/web-signup`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: key,
+    },
+    body: JSON.stringify({ email, password, name }),
+  })
+
+  let data = null
+  try {
+    data = await response.json()
+  } catch {
+    data = null
+  }
+
+  if (!response.ok) {
+    const message = data?.error || data?.message
+    if (response.status === 404) {
+      throw new Error('Регистрация на сайте пока не настроена. Выполните деплой функции web-signup в Supabase.')
+    }
+    throw new Error(message || `Не удалось создать аккаунт (${response.status})`)
+  }
+  return data
+}
+
 export function siteUrl() {
   return new URL('.', window.location.href).toString()
 }

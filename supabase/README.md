@@ -1,5 +1,31 @@
 # Supabase: настройка для 1.6.x
 
+## 0. Веб-регистрация без письма (1.6.3)
+
+Чтобы **Android подтверждение email продолжало работать** (`Confirm email = ON`), веб-регистрация идёт через Edge Function `web-signup`.
+
+1. Оставьте **Authentication → Providers → Email → Confirm email = ON**.
+2. Задеплойте функцию из репозитория:
+
+```bash
+supabase functions deploy web-signup --project-ref <PROJECT_REF> --no-verify-jwt
+```
+
+3. В функции используются встроенные секреты Supabase Edge Runtime: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Добавлять их вручную обычно не нужно.
+4. Функция создаёт пользователя через Admin API с `email_confirm: true`, поэтому письмо не отправляется. Сайт после этого выполняет обычный `signInWithPassword`.
+5. Смена email и сброс пароля на сайте отключены, потому что при `Confirm email = ON` они требуют почтовый поток. В Android эти сценарии работают через существующее подтверждение.
+
+Проверка:
+
+```bash
+curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/web-signup" \
+  -H "Content-Type: application/json" \
+  -H "apikey: <PUBLISHABLE_KEY>" \
+  -d '{"email":"test@example.com","password":"123456","name":"Test"}'
+```
+
+Ожидаемый ответ: `{"ok":true,"userId":"..."}`. Повторный запрос с тем же email должен вернуть 409.
+
 ## 1. Таблица реакций
 
 Выполните `migrations/20261127000000_checkin_reactions.sql` в **SQL Editor**
@@ -11,12 +37,13 @@ RLS-политики разрешают всем читать счётчики �
 `(checkin_id, user_id)`; идентификатор отметки имеет вид
 `"<challengeId>|<userCode>|<date>"` и вычисляется одинаково в Android и вебе.
 
-## 2. Подтверждение email кодом
+## 2. Подтверждение email кодом (Android)
 
-Личный кабинет на сайте подтверждает почту шестизначным кодом. Supabase
-поддерживает переменную `{{ .Token }}` в шаблонах писем; она содержит 6-значный
-OTP. Чтобы старый Android-поток по ссылке продолжал работать, шаблоны должны
-содержать **и код, и ссылку**.
+Android-приложение подтверждает почту кодом/ссылкой из письма Supabase. Веб с версии 1.6.3
+не использует email-подтверждение: регистрация идёт через Edge Function `web-signup`, чтобы
+можно было оставить `Confirm email = ON` для Android.
+
+Если настраиваете письма для Android, шаблоны должны содержать **и код, и ссылку** (`{{ .Token }}` и `{{ .ConfirmationURL }}`).
 
 В **Authentication → Email Templates** замените шаблоны:
 
