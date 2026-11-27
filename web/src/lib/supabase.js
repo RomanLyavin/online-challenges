@@ -35,5 +35,8 @@ export function authMessage(error) {
     return 'Слишком много попыток. Подождите минуту и попробуйте снова'
   }
   if (/failed to fetch|networkerror/i.test(text)) return 'Нет связи с сервером. Проверьте интернет'
+  if (/schema cache|checkin_reactions|relation .* does not exist/i.test(text)) {
+    return 'Реакции пока недоступны: проверьте настройку Supabase'
+  }
   return text
 }

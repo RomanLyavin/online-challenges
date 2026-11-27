@@ -97,7 +97,8 @@ function App() {
     try {
       setSummary(await loadReactions(supabase, ids))
     } catch (err) {
-      setMessage(authMessage(err))
+      const text = err?.message || ''
+      if (!/schema cache|checkin_reactions/i.test(text)) setMessage(authMessage(err))
     }
   }, [ids.join('|')])
 
