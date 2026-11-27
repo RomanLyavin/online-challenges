@@ -376,6 +376,7 @@ function HomeView({ standings, checkIns, summary, onReact, onAccount }) {
   if (!standings) return <Loading />
   const users = [...(standings.users || [])].sort((a, b) => number(b.points) - number(a.points)).slice(0, 10)
   const totals = standings.totals || {}
+  const totalPoints = (standings.users || []).reduce((sum, user) => sum + number(user.points), 0)
 
   return (
     <>
@@ -391,7 +392,7 @@ function HomeView({ standings, checkIns, summary, onReact, onAccount }) {
         <div className="hero-stats">
           <Stat value={number(totals.users)} label="участников" />
           <Stat value={number(totals.challenges)} label="челленджей" />
-          <Stat value={formatNumber(totals.points)} label="баллов" />
+          <Stat value={formatNumber(totalPoints)} label="баллов" />
         </div>
       </section>
 
