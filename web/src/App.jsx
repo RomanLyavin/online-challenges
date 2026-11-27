@@ -11,7 +11,7 @@ import { REACTIONS, checkInId, loadReactions, toggleReaction } from './lib/react
 import { joinChallenge, leaveChallenge, loadParticipation, participantName } from './lib/participation.js'
 import donateImage from './assets/donate.jpg'
 
-const APP_VERSION = '1.6.5'
+const APP_VERSION = '1.6.6'
 const SUPPORT_URL = 'https://t.tb.ru/pm_short/AOdA22MAdsS'
 const TABS = [
   { id: 'home', label: 'Главная', icon: '🏠' },
