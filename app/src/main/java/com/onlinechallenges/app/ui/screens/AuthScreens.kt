@@ -303,6 +303,7 @@ fun VerifyScreen(vm: AppViewModel) {
     val remoteError by vm.authError.collectAsStateWithLifecycle()
     val busy by vm.authBusy.collectAsStateWithLifecycle()
     val email = data.pendingEmail.orEmpty()
+    var code by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -324,7 +325,7 @@ fun VerifyScreen(vm: AppViewModel) {
         Text("Подтвердите email", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(6.dp))
         Text(
-            "Мы отправили ссылку на $email. Откройте письмо на телефоне с установленным приложением.",
+            "Мы отправили код подтверждения на $email. Введите шестизначный код из письма.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -336,19 +337,25 @@ fun VerifyScreen(vm: AppViewModel) {
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    "Код больше не показывается на экране: подтверждение приходит ссылкой на настоящую почту.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Важно: открывайте письмо только на телефоне. С компьютера ссылка не откроет приложение. " +
-                        "Если браузер покажет страницу «See Other», нажмите ссылку на ней.",
+                    "Код приходит на настоящую почту и действует один час. Если вы открыли ссылку из письма " +
+                        "на телефоне, приложение подтвердит email автоматически.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
         }
+        Spacer(Modifier.height(16.dp))
+        OutlinedTextField(
+            value = code,
+            onValueChange = { value ->
+                code = value.filter { it.isDigit() }.take(6)
+            },
+            label = { Text("Код из письма") },
+            singleLine = true,
+            enabled = !busy,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+            modifier = Modifier.fillMaxWidth()
+        )
         if (remoteError != null) {
             Spacer(Modifier.height(8.dp))
             Text(
@@ -357,7 +364,16 @@ fun VerifyScreen(vm: AppViewModel) {
                 style = MaterialTheme.typography.bodySmall
             )
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = { vm.verifySignupCode(code) },
+            enabled = !busy && code.length == 6,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            shape = MaterialTheme.shapes.small
+        ) { Text("Подтвердить код") }
+        Spacer(Modifier.height(8.dp))
         Button(
             onClick = { vm.completeEmailCheck() },
             modifier = Modifier

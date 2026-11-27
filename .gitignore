@@ -12,3 +12,7 @@ keystore.properties
 *.jks
 *.keystore
 .kotlin/
+/web/node_modules/
+/web/dist/
+/web/.env.local
+/web/.env.*.local

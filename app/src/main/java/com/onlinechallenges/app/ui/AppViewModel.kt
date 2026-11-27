@@ -39,6 +39,9 @@ import com.onlinechallenges.app.data.PrivateBundle
 import com.onlinechallenges.app.data.Profile
 import com.onlinechallenges.app.data.ProofType
 import com.onlinechallenges.app.data.PublicProfileLookup
+import com.onlinechallenges.app.data.ReactionRepository
+import com.onlinechallenges.app.data.ReactionSummary
+import com.onlinechallenges.app.data.ReactionType
 import com.onlinechallenges.app.data.SupabaseAuth
 import com.onlinechallenges.app.data.SyncManager
 import com.onlinechallenges.app.data.SyncPrefs
@@ -118,6 +121,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val draft = MutableStateFlow<CheckInDraft?>(null)
     val avatarDraft = MutableStateFlow<String?>(null)
     val uiMessage = MutableStateFlow<String?>(null)
+    val reactions = MutableStateFlow(ReactionSummary())
+    val reactionError = MutableStateFlow<String?>(null)
     val authError = MutableStateFlow<String?>(null)
     val authBusy = MutableStateFlow(false)
     val passwordResetRequested = MutableStateFlow(false)
@@ -305,6 +310,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 SupabaseAuth.resendConfirmation(email)
                 withContext(Dispatchers.Main) { uiMessage.value = "Письмо подтверждения отправлено повторно" }
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) { authError.value = authMessage(error) }
+            } finally {
+                withContext(Dispatchers.Main) { authBusy.value = false }
+            }
+        }
+        return null
+    }
+
+    fun verifySignupCode(code: String): String? {
+        val email = repository.snapshot().pendingEmail
+        if (email.isNullOrBlank()) return "Не найден email для подтверждения"
+        val normalizedCode = code.trim()
+        if (normalizedCode.length != 6 || normalizedCode.any { !it.isDigit() }) {
+            return "Введите шестизначный код из письма"
+        }
+        if (!SupabaseAuth.isConfigured) return "Подтверждение через почту недоступно"
+        authBusy.value = true
+        authError.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                SupabaseAuth.verifyEmailCode(OtpType.Email.EMAIL, email, normalizedCode)
+                withContext(Dispatchers.Main) {
+                    screenStack.clear()
+                    screenStack += Screen.Auth
+                    uiMessage.value = "Email подтверждён. Теперь войдите с паролем"
+                }
             } catch (error: Exception) {
                 withContext(Dispatchers.Main) { authError.value = authMessage(error) }
             } finally {
@@ -1192,6 +1224,46 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         uiMessage.value = if (updated.revoked) "Подтверждение снято" else "Результат подтверждён"
         autoSyncIfEnabled()
         return null
+    }
+
+    // ---------- Реакции ----------
+
+    fun loadReactions(checkIns: List<CheckIn>) {
+        if (!ReactionRepository.isConfigured || checkIns.isEmpty()) return
+        val ids = checkIns.map {
+            ReactionRepository.checkInId(it.challengeId, it.userCode, it.date)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { ReactionRepository.load(ids) }
+                .onSuccess { reactions.value = it }
+                .onFailure { error ->
+                    reactionError.value = error.message ?: "Не удалось загрузить реакции"
+                }
+        }
+    }
+
+    fun toggleReaction(checkIn: CheckIn, type: ReactionType) {
+        if (!SupabaseAuth.isSignedIn()) {
+            reactionError.value = "Войдите, чтобы оставить реакцию"
+            return
+        }
+        val id = ReactionRepository.checkInId(checkIn.challengeId, checkIn.userCode, checkIn.date)
+        reactionError.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { ReactionRepository.toggle(id, type) }
+                .onSuccess {
+                    val ids = (reactions.value.counts.keys + id).distinct()
+                    runCatching { ReactionRepository.load(ids) }
+                        .onSuccess { reactions.value = it }
+                }
+                .onFailure { error ->
+                    reactionError.value = error.message ?: "Не удалось сохранить реакцию"
+                }
+        }
+    }
+
+    fun clearReactionError() {
+        reactionError.value = null
     }
 
     // ---------- Синхронизация ----------

@@ -70,6 +70,14 @@ object SupabaseAuth {
 
     fun currentUser(): UserInfo? = clientOrNull?.auth?.currentUserOrNull()
 
+    fun currentUserId(): String? = currentUser()?.id
+
+    fun currentAccessToken(): String? = clientOrNull?.auth?.currentSessionOrNull()?.accessToken
+
+    suspend fun verifyEmailCode(type: OtpType.Email, email: String, code: String) {
+        client.auth.verifyEmailOtp(type = type, email = email, token = code.trim())
+    }
+
     fun isSignedIn(): Boolean = clientOrNull?.auth?.currentSessionOrNull() != null
 
     suspend fun signUp(email: String, password: String): UserInfo? =

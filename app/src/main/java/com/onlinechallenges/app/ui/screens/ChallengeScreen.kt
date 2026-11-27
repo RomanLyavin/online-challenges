@@ -25,6 +25,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +59,8 @@ import com.onlinechallenges.app.data.Dates
 import com.onlinechallenges.app.data.ParticipantScore
 import com.onlinechallenges.app.data.PeriodScore
 import com.onlinechallenges.app.data.PeriodState
+import com.onlinechallenges.app.data.ReactionSummary
+import com.onlinechallenges.app.data.ReactionType
 import com.onlinechallenges.app.ui.ActivityIcon
 import com.onlinechallenges.app.ui.AppViewModel
 import com.onlinechallenges.app.ui.DemoBadge
@@ -120,6 +125,12 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
         )
     }
     val recent = ChallengeEngine.recentCheckIns(challenge, data.checkIns, 20)
+    val reactionState by vm.reactions.collectAsStateWithLifecycle()
+    val reactionError by vm.reactionError.collectAsStateWithLifecycle()
+    val recentKey = recent.joinToString("|") { "${it.id}:${it.updatedAt}" }
+    LaunchedEffect(challenge.id, recentKey) {
+        vm.loadReactions(recent)
+    }
     var actionError by remember(challenge.id) { mutableStateOf<String?>(null) }
     var newEndDate by remember(challenge.id, challenge.endDate) { mutableStateOf(challenge.end) }
     var showDeleteDialog by remember(challenge.id) { mutableStateOf(false) }
@@ -425,6 +436,10 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
                 SectionTitle("Кто уже что сделал", subtitle = "Последние отметки участников")
                 Spacer(Modifier.height(6.dp))
+                if (reactionError != null) {
+                    InfoBanner(text = reactionError!!, warning = true)
+                    Spacer(Modifier.height(6.dp))
+                }
                 if (recent.isEmpty()) {
                     EmptyState(
                         emoji = "📝",
@@ -458,6 +473,13 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    Spacer(Modifier.height(4.dp))
+                    val reactionId = "${checkIn.challengeId}|${checkIn.userCode}|${checkIn.date}"
+                    ReactionBar(
+                        counts = reactionState.counts[reactionId].orEmpty(),
+                        mine = reactionState.mine[reactionId],
+                        onToggle = { vm.toggleReaction(checkIn, it) }
+                    )
                     Spacer(Modifier.height(6.dp))
                     checkIn.results.forEach { result ->
                         val goal = challenge.goals.firstOrNull { it.id == result.goalId } ?: return@forEach
@@ -672,6 +694,37 @@ fun ChallengeDetailScreen(vm: AppViewModel, challengeId: String) {
                 TextButton(onClick = { showDeleteDialog = false }) { Text("Отмена") }
             }
         )
+    }
+}
+
+@Composable
+private fun ReactionBar(
+    counts: Map<ReactionType, Int>,
+    mine: ReactionType?,
+    onToggle: (ReactionType) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        ReactionType.entries.forEach { type ->
+            val selected = mine == type
+            FilterChip(
+                selected = selected,
+                onClick = { onToggle(type) },
+                label = {
+                    Text(
+                        "${type.emoji} ${counts[type] ?: 0}",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+        }
     }
 }
 
